@@ -247,8 +247,8 @@ export function renderReviewButton(onClick: () => void): HTMLElement {
   const button = document.createElement('button');
   button.className = 'pr-ai-review-btn btn btn-sm pr-ai-review-btn--floating';
   button.innerHTML = `
-    <svg class="octicon" viewBox="0 0 16 16" width="16" height="16">
-      <path fill="currentColor" d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm4.879-2.773 4.264 2.559a.25.25 0 0 1 0 .428l-4.264 2.559A.25.25 0 0 1 6 10.559V5.442a.25.25 0 0 1 .379-.215Z"/>
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
     </svg>
     AI Review
   `;
@@ -275,13 +275,13 @@ export function updateReviewButtonState(state: 'idle' | 'loading' | 'error'): vo
   button.classList.toggle('pr-ai-review-btn--error', state === 'error');
 
   button.innerHTML = state === 'loading' ? `
-    <svg class="pr-ai-spinner" viewBox="0 0 16 16" width="16" height="16">
-      <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="2" fill="none" stroke-dasharray="30" stroke-linecap="round"/>
+    <svg class="pr-ai-spinner" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="10" stroke-dasharray="50" stroke-linecap="round"/>
     </svg>
     Reviewing...
   ` : `
-    <svg class="octicon" viewBox="0 0 16 16" width="16" height="16">
-      <path fill="currentColor" d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm4.879-2.773 4.264 2.559a.25.25 0 0 1 0 .428l-4.264 2.559A.25.25 0 0 1 6 10.559V5.442a.25.25 0 0 1 .379-.215Z"/>
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
     </svg>
     AI Review
   `;
