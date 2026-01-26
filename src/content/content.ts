@@ -6,10 +6,13 @@ import {
   updateReviewButtonState,
   clearSuggestionOverlays,
   showToast,
+  initializeSuggestions,
+  appendSuggestion,
+  finalizeSuggestions
 } from './overlay-ui';
 import { sendToBackground, DEFAULT_SETTINGS } from '../shared/messages';
-import type { BackgroundMessage } from '../shared/messages';
-import type { ReviewResponse, ExtensionSettings } from '../shared/types';
+import type { BackgroundMessage, StreamPortMessage } from '../shared/messages';
+import type { ReviewResponse, ExtensionSettings, PRDiff } from '../shared/types';
 import { TIMEOUTS, CSS_CLASSES, LOG_TAGS } from '../shared/constants';
 import { logger } from '../shared/logger';
 
@@ -19,6 +22,8 @@ const TAG = LOG_TAGS.CONTENT;
 let isReviewing = false;
 let currentSettings: ExtensionSettings = DEFAULT_SETTINGS;
 let lastReviewResponse: ReviewResponse | null = null;
+let currentDiff: PRDiff | null = null;
+let currentPort: chrome.runtime.Port | null = null;
 
 /**
  * Initialize the extension on GitHub PR pages
@@ -72,15 +77,14 @@ async function loadSettings(): Promise<void> {
  */
 async function handleReviewClick(): Promise<void> {
   if (isReviewing) {
-    // Cancel ongoing review
-    try {
-      await sendToBackground({ type: 'CANCEL_REVIEW' });
-      isReviewing = false;
-      updateReviewButtonState('idle');
-      showToast('Review cancelled');
-    } catch (error) {
-      logger.error(TAG, 'Failed to cancel review:', error);
+    // Cancel ongoing review by disconnecting the port
+    if (currentPort) {
+      currentPort.disconnect();
+      currentPort = null;
     }
+    isReviewing = false;
+    updateReviewButtonState('idle');
+    showToast('Review cancelled');
     return;
   }
 
@@ -101,23 +105,73 @@ async function handleReviewClick(): Promise<void> {
       throw new Error('No files found in the PR diff.');
     }
 
+    currentDiff = diff;
+
     logger.debug(TAG, 'Extracted diff:', {
       files: diff.files.length,
       title: diff.title,
     });
 
-    // Send review request to background script
-    const response = await sendToBackground({
-      type: 'REQUEST_REVIEW',
-      payload: diff,
+    // Create port for streaming communication
+    const port = chrome.runtime.connect({ name: `review-stream-${Date.now()}` });
+    currentPort = port;
+
+    // Initialize UI for streaming
+    initializeSuggestions(currentDiff, true);
+
+    let suggestionCount = 0;
+
+    port.onMessage.addListener((msg: StreamPortMessage) => {
+      switch (msg.type) {
+        case 'CHUNK':
+          suggestionCount++;
+          appendSuggestion(msg.payload);
+          // Show toast for first suggestion to give immediate feedback
+          if (suggestionCount === 1) {
+            showToast('Found first suggestion, analyzing more...');
+          }
+          break;
+        case 'END':
+          isReviewing = false;
+          updateReviewButtonState('idle');
+          finalizeSuggestions();
+          renderReviewSummary(msg.payload.summary, msg.payload.overallAssessment, suggestionCount);
+          showToast(`Review complete! ${suggestionCount} suggestion${suggestionCount !== 1 ? 's' : ''} found.`);
+          currentPort = null;
+          break;
+        case 'ERROR':
+          isReviewing = false;
+          updateReviewButtonState('error');
+          showToast(msg.payload.error, 'error');
+          currentPort = null;
+          setTimeout(() => {
+            updateReviewButtonState('idle');
+          }, TIMEOUTS.BUTTON_STATE_RESET);
+          break;
+      }
     });
 
-    handleReviewResponse(response);
+    port.onDisconnect.addListener(() => {
+      if (isReviewing) {
+        isReviewing = false;
+        updateReviewButtonState('error');
+        showToast('Connection lost', 'error');
+        setTimeout(() => {
+          updateReviewButtonState('idle');
+        }, TIMEOUTS.BUTTON_STATE_RESET);
+      }
+      currentPort = null;
+    });
+
+    // Start the review
+    port.postMessage({ type: 'START', payload: diff });
+
   } catch (error) {
     logger.error(TAG, 'Review failed:', error);
     isReviewing = false;
     updateReviewButtonState('error');
     showToast(error instanceof Error ? error.message : 'Review failed', 'error');
+    currentPort = null;
 
     // Reset to idle after showing error
     setTimeout(() => {
@@ -137,7 +191,7 @@ function handleReviewResponse(response: BackgroundMessage): void {
     updateReviewButtonState('idle');
 
     // Render suggestions
-    renderSuggestions(response.payload.suggestions);
+    renderSuggestions(response.payload.suggestions, currentDiff);
 
     // Render summary banner
     renderReviewSummary(
@@ -158,7 +212,7 @@ function handleReviewResponse(response: BackgroundMessage): void {
 }
 
 /**
- * Handles messages from the background script
+ * Handles messages from the background script (non-streaming messages only)
  */
 function handleBackgroundMessage(
   message: BackgroundMessage,
@@ -218,8 +272,13 @@ function setupNavigationObserver(): void {
  */
 function handleNavigation(): void {
   // Clean up existing state
+  if (currentPort) {
+    currentPort.disconnect();
+    currentPort = null;
+  }
   isReviewing = false;
   lastReviewResponse = null;
+  currentDiff = null;
   clearSuggestionOverlays();
 
   // Remove existing button

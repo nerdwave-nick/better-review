@@ -293,16 +293,10 @@ export async function submitReview(
  * Format comment with GitHub suggestion syntax
  */
 export function formatSuggestionComment(
-  title: string,
   description: string,
   suggestedCode?: string
 ): string {
-  let comment = '';
-
-  if (title) {
-    comment += `**${title}**\n\n`;
-  }
-  comment += description;
+  let comment = description;
 
   if (suggestedCode) {
     comment += `\n\n\`\`\`suggestion\n${suggestedCode}\n\`\`\``;

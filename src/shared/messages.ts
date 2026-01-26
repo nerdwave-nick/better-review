@@ -1,4 +1,11 @@
-import type { PRDiff, ReviewResponse, ExtensionSettings, ConnectionStatus } from './types';
+import type { PRDiff, ReviewResponse, ExtensionSettings, ConnectionStatus, ReviewSuggestion } from './types';
+
+// Port message types for streaming communication
+export type StreamPortMessage =
+  | { type: 'START'; payload: PRDiff }
+  | { type: 'CHUNK'; payload: ReviewSuggestion }
+  | { type: 'END'; payload: { summary: string; overallAssessment: string } }
+  | { type: 'ERROR'; payload: { error: string } };
 
 // Message types for content script <-> background communication
 export type PostCommentPayload = {
@@ -25,6 +32,7 @@ export type SubmitReviewPayload = {
 
 export type ContentMessage =
   | { type: 'REQUEST_REVIEW'; payload: PRDiff }
+  | { type: 'REQUEST_REVIEW_STREAM'; payload: PRDiff }
   | { type: 'FETCH_DIFF'; payload: { owner: string; repo: string; prNumber: number } }
   | { type: 'FETCH_PR_CONTEXT'; payload: { owner: string; repo: string; prNumber: number } }
   | { type: 'POST_COMMENT'; payload: PostCommentPayload }
@@ -44,6 +52,9 @@ export type PRContextResult = {
 
 export type BackgroundMessage =
   | { type: 'REVIEW_RESULT'; payload: ReviewResponse }
+  | { type: 'REVIEW_STREAM_START' }
+  | { type: 'REVIEW_STREAM_CHUNK'; payload: ReviewSuggestion }
+  | { type: 'REVIEW_STREAM_END'; payload: { summary: string; overallAssessment: string } }
   | { type: 'REVIEW_ERROR'; payload: { error: string } }
   | { type: 'REVIEW_PROGRESS'; payload: { status: string; progress?: number } }
   | { type: 'SETTINGS_RESULT'; payload: ExtensionSettings }

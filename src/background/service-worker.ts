@@ -1,16 +1,14 @@
-import { requestReview } from './gemini-service';
+import { requestReview, requestReviewStream } from './gemini-service';
 import { DEFAULT_SETTINGS } from '../shared/messages';
 import type {
   ContentMessage,
   BackgroundMessage,
+  StreamPortMessage,
 } from '../shared/messages';
 import type { ExtensionSettings, PRDiff } from '../shared/types';
 import { STORAGE_KEYS, GITHUB_API_URL, GITHUB_WEB_URL, LOG_TAGS } from '../shared/constants';
 import { logger, getErrorMessage } from '../shared/logger';
 import { buildGitHubHeaders } from '../shared/utils';
-
-// Current review state
-let currentReviewTabId: number | null = null;
 
 const TAG = LOG_TAGS.SERVICE_WORKER;
 
@@ -23,10 +21,55 @@ function init(): void {
   // Set up message listener
   chrome.runtime.onMessage.addListener(handleMessage);
 
+  // Set up port listener for streaming
+  chrome.runtime.onConnect.addListener(handleStreamingPort);
+
   // Set up install/update listener
   chrome.runtime.onInstalled.addListener(handleInstalled);
 
   logger.info(TAG, 'Initialized');
+}
+
+/**
+ * Handles streaming review requests via port-based communication
+ */
+function handleStreamingPort(port: chrome.runtime.Port): void {
+  if (!port.name.startsWith('review-stream-')) return;
+
+  logger.debug(TAG, 'Port connected:', port.name);
+
+  let aborted = false;
+
+  port.onDisconnect.addListener(() => {
+    logger.debug(TAG, 'Port disconnected:', port.name);
+    aborted = true;
+  });
+
+  port.onMessage.addListener(async (msg: StreamPortMessage) => {
+    if (msg.type !== 'START') return;
+
+    logger.debug(TAG, 'Starting streaming review via port');
+
+    const settings = await getSettings();
+    if (!settings.geminiApiKey) {
+      port.postMessage({ type: 'ERROR', payload: { error: 'Please set your Gemini API key in the extension settings.' } });
+      return;
+    }
+
+    await requestReviewStream(
+      msg.payload,
+      settings,
+      (suggestion) => {
+        if (!aborted) port.postMessage({ type: 'CHUNK', payload: suggestion });
+      },
+      (summary, assessment) => {
+        if (!aborted) port.postMessage({ type: 'END', payload: { summary, overallAssessment: assessment } });
+      },
+      (error) => {
+        if (!aborted) port.postMessage({ type: 'ERROR', payload: { error } });
+      }
+    );
+  });
 }
 
 /**
@@ -69,6 +112,14 @@ async function handleMessageAsync(
         await handleReviewRequest(message.payload, sender.tab?.id, sendResponse);
         break;
 
+      case 'REQUEST_REVIEW_STREAM':
+        // Streaming now uses port-based communication
+        sendResponse({
+          type: 'REVIEW_ERROR',
+          payload: { error: 'Streaming should use port-based communication' },
+        });
+        break;
+
       case 'GET_SETTINGS':
         const settings = await getSettings();
         sendResponse({ type: 'SETTINGS_RESULT', payload: settings });
@@ -92,7 +143,7 @@ async function handleMessageAsync(
         break;
 
       case 'CANCEL_REVIEW':
-        currentReviewTabId = null;
+        // Cancellation is handled by disconnecting the port
         sendResponse({
           type: 'REVIEW_PROGRESS',
           payload: { status: 'cancelled' },
@@ -133,23 +184,13 @@ async function handleMessageAsync(
 }
 
 /**
- * Handles review request from content script
+ * Handles review request from content script (non-streaming)
  */
 async function handleReviewRequest(
   diff: PRDiff,
   tabId: number | undefined,
   sendResponse: (response: BackgroundMessage) => void
 ): Promise<void> {
-  if (currentReviewTabId !== null && currentReviewTabId !== tabId) {
-    sendResponse({
-      type: 'REVIEW_ERROR',
-      payload: { error: 'Another review is in progress' },
-    });
-    return;
-  }
-
-  currentReviewTabId = tabId ?? null;
-
   try {
     // Get current settings
     const settings = await getSettings();
@@ -182,8 +223,6 @@ async function handleReviewRequest(
         error: getErrorMessage(error, 'Review failed'),
       },
     });
-  } finally {
-    currentReviewTabId = null;
   }
 }
 

@@ -19,9 +19,16 @@ export const TIMEOUTS = {
 
 // Gemini AI configuration
 export const GEMINI_CONFIG = {
-  MODEL: 'gemini-2.5-flash-preview-05-20',
-  MAX_OUTPUT_TOKENS: 65000,
+  MODEL: 'gemini-3-flash-preview',
   TEMPERATURE: 0.3,
+  MAX_OUTPUT_TOKENS: 60000,    // High limit to allow many suggestions
+  // Limits for faster processing
+  MAX_DIFF_LINES_PER_FILE: 500,
+  MAX_FILES_PER_BATCH: 10,
+  MAX_TOTAL_DIFF_CHARS: 50000,
+  // Hallucination detection
+  MAX_CONSECUTIVE_REPEATS: 50,  // Detect if same chunk repeats too many times
+  MAX_NUMBER_LENGTH: 15,        // Detect runaway number generation
 } as const;
 
 // CSS class names used by the extension

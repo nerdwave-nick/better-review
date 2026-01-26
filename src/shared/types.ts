@@ -50,7 +50,6 @@ export interface ReviewSuggestion {
   lineRange?: { start: number; end: number }; // For multi-line suggestions
   priority: SuggestionPriority;
   type: SuggestionType;
-  title: string;
   description: string;
   suggestedCode?: string; // For code change suggestions
   category: 'security' | 'performance' | 'style' | 'logic' | 'best_practice' | 'documentation';

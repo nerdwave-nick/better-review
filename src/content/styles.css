@@ -746,6 +746,18 @@
   color: var(--pr-ai-text-secondary);
 }
 
+.pr-ai-suggestion-nav__streaming {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  animation: pr-ai-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pr-ai-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
 .pr-ai-suggestion-nav__current {
   color: var(--pr-ai-text);
 }
@@ -1001,4 +1013,80 @@
 .dark .pr-ai-preview__priority--low {
   background: rgba(16, 185, 129, 0.25);
   color: #34d399;
+}
+
+/* Diff View */
+.pr-ai-diff-view {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+  border: 1px solid var(--pr-ai-border);
+  border-radius: 6px;
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.pr-ai-diff-block {
+  padding: 0;
+  margin: 0;
+  position: relative;
+}
+
+.pr-ai-diff-header {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  color: var(--pr-ai-text-secondary);
+  background: var(--pr-ai-bg-secondary);
+  border-bottom: 1px solid var(--pr-ai-border);
+}
+
+.pr-ai-diff-original {
+  background: rgba(239, 68, 68, 0.05); /* Light red */
+}
+.pr-ai-diff-original .pr-ai-diff-header {
+  background: rgba(239, 68, 68, 0.1);
+  color: #b91c1c;
+}
+
+.pr-ai-diff-suggested {
+  background: rgba(16, 185, 129, 0.05); /* Light green */
+}
+.pr-ai-diff-suggested .pr-ai-diff-header {
+  background: rgba(16, 185, 129, 0.1);
+  color: #047857;
+}
+
+.pr-ai-diff-block pre {
+  margin: 0;
+  padding: 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--pr-ai-text);
+  overflow-x: auto;
+}
+
+/* Dark mode adjustments */
+[data-color-mode="dark"] .pr-ai-diff-original,
+.dark .pr-ai-diff-original {
+    background: rgba(239, 68, 68, 0.15);
+}
+[data-color-mode="dark"] .pr-ai-diff-original .pr-ai-diff-header,
+.dark .pr-ai-diff-original .pr-ai-diff-header {
+    background: rgba(239, 68, 68, 0.25);
+    color: #f87171;
+}
+
+[data-color-mode="dark"] .pr-ai-diff-suggested,
+.dark .pr-ai-diff-suggested {
+    background: rgba(16, 185, 129, 0.15);
+}
+[data-color-mode="dark"] .pr-ai-diff-suggested .pr-ai-diff-header,
+.dark .pr-ai-diff-suggested .pr-ai-diff-header {
+    background: rgba(16, 185, 129, 0.25);
+    color: #34d399;
 }

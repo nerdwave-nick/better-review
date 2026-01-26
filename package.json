@@ -13,7 +13,9 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.21.0"
+    "@codemirror/lang-javascript": "^6.2.4",
+    "@google/generative-ai": "^0.21.0",
+    "codemirror": "^6.0.2"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.268",
