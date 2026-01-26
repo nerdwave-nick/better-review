@@ -62,7 +62,8 @@ function handleStreamingPort(port: chrome.runtime.Port): void {
       settings,
       (suggestion) => !aborted && port.postMessage({ type: 'CHUNK', payload: suggestion }),
       (summary, assessment) => !aborted && port.postMessage({ type: 'END', payload: { summary, overallAssessment: assessment } }),
-      (error) => !aborted && port.postMessage({ type: 'ERROR', payload: { error } })
+      (error) => !aborted && port.postMessage({ type: 'ERROR', payload: { error } }),
+      (summaryData) => !aborted && port.postMessage({ type: 'SUMMARY', payload: summaryData })
     );
   });
 }

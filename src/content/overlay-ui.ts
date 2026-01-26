@@ -146,6 +146,73 @@ export function renderReviewSummary(summary: string, _assessment: string, sugges
   if (suggestionCount === 0) showToast('\u{2705} ' + summary);
 }
 
+export function showStreamingSummary(summary: string, keyChanges: string[], potentialConcerns?: string[]): void {
+  const container = document.querySelector('.pr-ai-suggestion-container');
+  if (!container) return;
+
+  // Remove any existing streaming summary
+  container.querySelector('.pr-ai-streaming-summary')?.remove();
+
+  const summaryEl = document.createElement('div');
+  summaryEl.className = 'pr-ai-streaming-summary';
+  summaryEl.innerHTML = `
+    <div class="pr-ai-streaming-summary__header">
+      <span class="pr-ai-streaming-summary__icon">\u{1F4DD}</span>
+      <span class="pr-ai-streaming-summary__title">PR Summary</span>
+    </div>
+    <div class="pr-ai-streaming-summary__content">
+      <div class="pr-ai-streaming-summary__text">${escapeHtml(summary)}</div>
+      ${keyChanges.length > 0 ? `
+        <div class="pr-ai-streaming-summary__changes">
+          <strong>Key changes:</strong>
+          <ul>${keyChanges.map(c => `<li>${escapeHtml(c)}</li>`).join('')}</ul>
+        </div>
+      ` : ''}
+      ${potentialConcerns && potentialConcerns.length > 0 ? `
+        <div class="pr-ai-streaming-summary__concerns">
+          <strong>\u{26A0}\uFE0F Areas to watch:</strong>
+          <ul>${potentialConcerns.map(c => `<li>${escapeHtml(c)}</li>`).join('')}</ul>
+        </div>
+      ` : ''}
+    </div>
+  `;
+
+  // Insert after the nav but before the preview
+  const nav = container.querySelector('.pr-ai-suggestion-nav');
+  if (nav) {
+    nav.after(summaryEl);
+  }
+}
+
+function collapseStreamingSummary(): void {
+  const summaryEl = document.querySelector('.pr-ai-streaming-summary');
+  if (!summaryEl) return;
+
+  // Add collapsed class for animation
+  summaryEl.classList.add('pr-ai-streaming-summary--collapsed');
+
+  // Update the header to show it's complete
+  const header = summaryEl.querySelector('.pr-ai-streaming-summary__header');
+  if (header) {
+    header.innerHTML = `
+      <span class="pr-ai-streaming-summary__icon">\u{2705}</span>
+      <span class="pr-ai-streaming-summary__title">Summary</span>
+      <button class="pr-ai-streaming-summary__toggle" title="Expand summary">\u{25BC}</button>
+    `;
+
+    // Add toggle functionality
+    const toggleBtn = header.querySelector('.pr-ai-streaming-summary__toggle');
+    toggleBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      summaryEl.classList.toggle('pr-ai-streaming-summary--collapsed');
+      if (toggleBtn) {
+        toggleBtn.textContent = summaryEl.classList.contains('pr-ai-streaming-summary--collapsed') ? '\u{25BC}' : '\u{25B2}';
+        toggleBtn.title = summaryEl.classList.contains('pr-ai-streaming-summary--collapsed') ? 'Expand summary' : 'Collapse summary';
+      }
+    });
+  }
+}
+
 export function initializeSuggestions(diff: PRDiff | null, streaming = false): void {
   clearSuggestionOverlays();
   Object.assign(state, { diff, mode: streaming ? 'streaming' : 'idle', suggestions: [], currentIndex: 0, pendingCount: 0 });
@@ -155,7 +222,11 @@ export function initializeSuggestions(diff: PRDiff | null, streaming = false): v
 
 export function appendSuggestion(suggestion: ReviewSuggestion): void {
   state.suggestions.push(suggestion);
-  if (state.suggestions.length === 1) updateDisplay();
+  if (state.suggestions.length === 1) {
+    // Collapse the streaming summary when first suggestion arrives
+    collapseStreamingSummary();
+    updateDisplay();
+  }
   updateCountDisplay();
 }
 

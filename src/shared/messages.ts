@@ -3,6 +3,7 @@ import type { PRDiff, ReviewResponse, ExtensionSettings, ConnectionStatus, Revie
 // Port message types for streaming communication
 export type StreamPortMessage =
   | { type: 'START'; payload: PRDiff }
+  | { type: 'SUMMARY'; payload: { summary: string; keyChanges: string[]; potentialConcerns?: string[] } }
   | { type: 'CHUNK'; payload: ReviewSuggestion }
   | { type: 'END'; payload: { summary: string; overallAssessment: string } }
   | { type: 'ERROR'; payload: { error: string } };

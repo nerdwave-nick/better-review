@@ -117,7 +117,7 @@ const CHANGES_SUMMARY_SCHEMA = {
   required: ['summary', 'keyChanges'],
 };
 
-interface ChangesSummaryResponse {
+export interface ChangesSummaryResponse {
   summary: string;
   keyChanges: string[];
   potentialConcerns?: string[];
@@ -302,7 +302,8 @@ export async function requestReviewStream(
   settings: ExtensionSettings,
   onSuggestion: (suggestion: ReviewSuggestion) => void,
   onComplete: (summary: string, assessment: string) => void,
-  onError: (error: string) => void
+  onError: (error: string) => void,
+  onSummary?: (summary: ChangesSummaryResponse) => void
 ): Promise<void> {
   const apiKey = settings.geminiApiKey;
 
@@ -326,6 +327,11 @@ export async function requestReviewStream(
   try {
     logger.debug(TAG, `Phase 1: Generating changes summary for ${filteredFiles.length} files`);
     changesSummary = await generateChangesSummary(diff, filteredFiles, apiKey);
+
+    // Send summary immediately so UI can show it while Phase 2 streams
+    if (onSummary) {
+      onSummary(changesSummary);
+    }
   } catch (error) {
     onError(`Failed to generate changes summary: ${getErrorMessage(error)}`);
     return;

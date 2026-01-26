@@ -8,7 +8,8 @@ import {
   showToast,
   initializeSuggestions,
   appendSuggestion,
-  finalizeSuggestions
+  finalizeSuggestions,
+  showStreamingSummary
 } from './overlay-ui';
 import { sendToBackground, DEFAULT_SETTINGS } from '../shared/messages';
 import type { BackgroundMessage, StreamPortMessage } from '../shared/messages';
@@ -123,6 +124,10 @@ async function handleReviewClick(): Promise<void> {
 
     port.onMessage.addListener((msg: StreamPortMessage) => {
       switch (msg.type) {
+        case 'SUMMARY':
+          // Show the summary immediately while suggestions are still streaming
+          showStreamingSummary(msg.payload.summary, msg.payload.keyChanges, msg.payload.potentialConcerns);
+          break;
         case 'CHUNK':
           suggestionCount++;
           appendSuggestion(msg.payload);
