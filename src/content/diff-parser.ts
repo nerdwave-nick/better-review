@@ -1,4 +1,5 @@
-import type { PRDiff, FileDiff, DiffHunk } from '../shared/types';
+import parseDiff from 'parse-diff';
+import type { PRDiff, FileDiff } from '../shared/types';
 import { sendToBackground } from '../shared/messages';
 import { extractPRFromUrl } from '../shared/utils';
 import { LOG_TAGS } from '../shared/constants';
@@ -30,129 +31,33 @@ function extractPRDetails(): { title: string; description: string; baseBranch: s
 }
 
 /**
- * Parse a unified diff string into FileDiff array
+ * Convert parse-diff output to our FileDiff format
  */
-function parseUnifiedDiff(diffText: string): FileDiff[] {
-  const files: FileDiff[] = [];
-  const lines = diffText.split('\n');
+function convertToFileDiff(parsed: parseDiff.File[]): FileDiff[] {
+  return parsed.map(file => {
+    const status = file.new ? 'added' : file.deleted ? 'removed' : file.from !== file.to ? 'renamed' : 'modified';
 
-  let currentFile: FileDiff | null = null;
-  let currentHunk: DiffHunk | null = null;
-  let currentOldLine = 0;
-  let currentNewLine = 0;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    // New file: diff --git a/path b/path
-    if (line.startsWith('diff --git')) {
-      if (currentFile) {
-        if (currentHunk) {
-          currentFile.hunks.push(currentHunk);
-          currentHunk = null;
-        }
-        files.push(currentFile);
-      }
-
-      const match = line.match(/diff --git a\/(.+) b\/(.+)/);
-      const path = match ? match[2] : '';
-
-      currentFile = {
-        path,
-        status: 'modified',
-        hunks: [],
-        isBinary: false,
-      };
-      continue;
-    }
-
-    if (!currentFile) continue;
-
-    // File status
-    if (line.startsWith('new file')) {
-      currentFile.status = 'added';
-      continue;
-    }
-    if (line.startsWith('deleted file')) {
-      currentFile.status = 'removed';
-      continue;
-    }
-    if (line.startsWith('rename from') || line.startsWith('rename to')) {
-      currentFile.status = 'renamed';
-      continue;
-    }
-    if (line.startsWith('Binary files')) {
-      currentFile.isBinary = true;
-      continue;
-    }
-
-    // Skip --- and +++ lines
-    if (line.startsWith('---') || line.startsWith('+++')) {
-      continue;
-    }
-
-    // Hunk header: @@ -oldStart,oldLines +newStart,newLines @@
-    if (line.startsWith('@@')) {
-      if (currentHunk) {
-        currentFile.hunks.push(currentHunk);
-      }
-
-      const match = line.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
-      if (match) {
-        currentHunk = {
-          oldStart: parseInt(match[1], 10),
-          oldLines: match[2] ? parseInt(match[2], 10) : 1,
-          newStart: parseInt(match[3], 10),
-          newLines: match[4] ? parseInt(match[4], 10) : 1,
-          lines: [],
-        };
-        // Initialize line counters for this hunk
-        currentOldLine = currentHunk.oldStart;
-        currentNewLine = currentHunk.newStart;
-      }
-      continue;
-    }
-
-    // Diff lines - use tracked line numbers
-    if (currentHunk) {
-      if (line.startsWith('+')) {
-        currentHunk.lines.push({
-          type: 'added',
-          content: line.substring(1),
-          oldLineNumber: null,
-          newLineNumber: currentNewLine,
-        });
-        currentNewLine++;
-      } else if (line.startsWith('-')) {
-        currentHunk.lines.push({
-          type: 'removed',
-          content: line.substring(1),
-          oldLineNumber: currentOldLine,
-          newLineNumber: null,
-        });
-        currentOldLine++;
-      } else if (line.startsWith(' ') || line === '') {
-        currentHunk.lines.push({
-          type: 'context',
-          content: line.substring(1),
-          oldLineNumber: currentOldLine,
-          newLineNumber: currentNewLine,
-        });
-        currentOldLine++;
-        currentNewLine++;
-      }
-    }
-  }
-
-  // Save last file
-  if (currentFile) {
-    if (currentHunk) {
-      currentFile.hunks.push(currentHunk);
-    }
-    files.push(currentFile);
-  }
-
-  return files;
+    return {
+      path: file.to || file.from || '',
+      status,
+      isBinary: (file as parseDiff.File & { binary?: boolean }).binary || false,
+      hunks: (file.chunks || []).map(chunk => ({
+        oldStart: chunk.oldStart,
+        oldLines: chunk.oldLines,
+        newStart: chunk.newStart,
+        newLines: chunk.newLines,
+        lines: chunk.changes.map(change => {
+          const c = change as parseDiff.Change & { ln?: number; ln1?: number; ln2?: number };
+          return {
+            type: change.type === 'add' ? 'added' : change.type === 'del' ? 'removed' : 'context',
+            content: change.content.substring(1), // Remove +/- prefix
+            oldLineNumber: change.type !== 'add' ? (c.ln ?? c.ln1 ?? null) : null,
+            newLineNumber: change.type !== 'del' ? (c.ln ?? c.ln2 ?? null) : null,
+          };
+        }),
+      })),
+    };
+  });
 }
 
 /**
@@ -178,7 +83,8 @@ export async function extractPRDiff(): Promise<PRDiff | null> {
       throw new Error('Unexpected response type');
     }
 
-    const files = parseUnifiedDiff(response.payload.diffText);
+    const parsed = parseDiff(response.payload.diffText);
+    const files = convertToFileDiff(parsed);
     const details = extractPRDetails();
 
     logger.debug(TAG, 'Parsed', files.length, 'files');

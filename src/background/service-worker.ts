@@ -1,646 +1,260 @@
+import { Octokit } from '@octokit/rest';
 import { requestReview, requestReviewStream } from './gemini-service';
 import { DEFAULT_SETTINGS } from '../shared/messages';
-import type {
-  ContentMessage,
-  BackgroundMessage,
-  StreamPortMessage,
-} from '../shared/messages';
+import type { ContentMessage, BackgroundMessage, StreamPortMessage } from '../shared/messages';
 import type { ExtensionSettings, PRDiff } from '../shared/types';
-import { STORAGE_KEYS, GITHUB_API_URL, GITHUB_WEB_URL, LOG_TAGS } from '../shared/constants';
-import { logger, getErrorMessage } from '../shared/logger';
-import { buildGitHubHeaders } from '../shared/utils';
+import { STORAGE_KEYS, GITHUB_WEB_URL } from '../shared/constants';
 
-const TAG = LOG_TAGS.SERVICE_WORKER;
-
-/**
- * Initialize the service worker
- */
-function init(): void {
-  logger.info(TAG, 'Initializing...');
-
-  // Set up message listener
-  chrome.runtime.onMessage.addListener(handleMessage);
-
-  // Set up port listener for streaming
-  chrome.runtime.onConnect.addListener(handleStreamingPort);
-
-  // Set up install/update listener
-  chrome.runtime.onInstalled.addListener(handleInstalled);
-
-  logger.info(TAG, 'Initialized');
-}
-
-/**
- * Handles streaming review requests via port-based communication
- */
-function handleStreamingPort(port: chrome.runtime.Port): void {
-  if (!port.name.startsWith('review-stream-')) return;
-
-  logger.debug(TAG, 'Port connected:', port.name);
-
-  let aborted = false;
-
-  port.onDisconnect.addListener(() => {
-    logger.debug(TAG, 'Port disconnected:', port.name);
-    aborted = true;
-  });
-
-  port.onMessage.addListener(async (msg: StreamPortMessage) => {
-    if (msg.type !== 'START') return;
-
-    logger.debug(TAG, 'Starting streaming review via port');
-
-    const settings = await getSettings();
-    if (!settings.geminiApiKey) {
-      port.postMessage({ type: 'ERROR', payload: { error: 'Please set your Gemini API key in the extension settings.' } });
-      return;
-    }
-
-    await requestReviewStream(
-      msg.payload,
-      settings,
-      (suggestion) => {
-        if (!aborted) port.postMessage({ type: 'CHUNK', payload: suggestion });
-      },
-      (summary, assessment) => {
-        if (!aborted) port.postMessage({ type: 'END', payload: { summary, overallAssessment: assessment } });
-      },
-      (error) => {
-        if (!aborted) port.postMessage({ type: 'ERROR', payload: { error } });
-      }
-    );
-  });
-}
-
-/**
- * Handles extension install/update
- */
-function handleInstalled(details: chrome.runtime.InstalledDetails): void {
-  if (details.reason === 'install') {
-    // Initialize default settings
-    chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: DEFAULT_SETTINGS });
-    logger.info(TAG, 'Extension installed, default settings saved');
-  }
-}
-
-/**
- * Handles messages from content scripts and popup
- */
-function handleMessage(
-  message: ContentMessage,
-  sender: chrome.runtime.MessageSender,
-  sendResponse: (response: BackgroundMessage) => void
-): boolean {
-  // Return true to indicate we'll send response asynchronously
-  handleMessageAsync(message, sender, sendResponse);
-  return true;
-}
-
-/**
- * Async handler for messages
- */
-async function handleMessageAsync(
-  message: ContentMessage,
-  sender: chrome.runtime.MessageSender,
-  sendResponse: (response: BackgroundMessage) => void
-): Promise<void> {
-  logger.debug(TAG, 'Received message:', message.type);
-
-  try {
-    switch (message.type) {
-      case 'REQUEST_REVIEW':
-        await handleReviewRequest(message.payload, sender.tab?.id, sendResponse);
-        break;
-
-      case 'REQUEST_REVIEW_STREAM':
-        // Streaming now uses port-based communication
-        sendResponse({
-          type: 'REVIEW_ERROR',
-          payload: { error: 'Streaming should use port-based communication' },
-        });
-        break;
-
-      case 'GET_SETTINGS':
-        const settings = await getSettings();
-        sendResponse({ type: 'SETTINGS_RESULT', payload: settings });
-        break;
-
-      case 'SAVE_SETTINGS':
-        await saveSettings(message.payload);
-        const updatedSettings = await getSettings();
-        sendResponse({ type: 'SETTINGS_RESULT', payload: updatedSettings });
-        break;
-
-      case 'CHECK_CONNECTION':
-        const currentSettings = await getSettings();
-        sendResponse({
-          type: 'CONNECTION_STATUS',
-          payload: {
-            connected: !!currentSettings.geminiApiKey,
-            lastPing: Date.now(),
-          },
-        });
-        break;
-
-      case 'CANCEL_REVIEW':
-        // Cancellation is handled by disconnecting the port
-        sendResponse({
-          type: 'REVIEW_PROGRESS',
-          payload: { status: 'cancelled' },
-        });
-        break;
-
-      case 'FETCH_DIFF':
-        await handleFetchDiff(message.payload, sendResponse);
-        break;
-
-      case 'FETCH_PR_CONTEXT':
-        await handleFetchPRContext(message.payload, sendResponse);
-        break;
-
-      case 'POST_COMMENT':
-        await handlePostComment(message.payload, sendResponse);
-        break;
-
-      case 'SUBMIT_REVIEW':
-        await handleSubmitReview(message.payload, sendResponse);
-        break;
-
-      default:
-        sendResponse({
-          type: 'REVIEW_ERROR',
-          payload: { error: 'Unknown message type' },
-        });
-    }
-  } catch (error) {
-    logger.error(TAG, 'Error handling message:', error);
-    sendResponse({
-      type: 'REVIEW_ERROR',
-      payload: {
-        error: getErrorMessage(error),
-      },
-    });
-  }
-}
-
-/**
- * Handles review request from content script (non-streaming)
- */
-async function handleReviewRequest(
-  diff: PRDiff,
-  tabId: number | undefined,
-  sendResponse: (response: BackgroundMessage) => void
-): Promise<void> {
-  try {
-    // Get current settings
-    const settings = await getSettings();
-
-    if (!settings.geminiApiKey) {
-      sendResponse({
-        type: 'REVIEW_ERROR',
-        payload: { error: 'Please set your Gemini API key in the extension settings.' },
-      });
-      return;
-    }
-
-    // Send progress update
-    if (tabId) {
-      broadcastProgress('Analyzing code...', 10, tabId);
-    }
-
-    // Request review from Gemini
-    const reviewResponse = await requestReview(diff, settings);
-
-    sendResponse({
-      type: 'REVIEW_RESULT',
-      payload: reviewResponse,
-    });
-  } catch (error) {
-    logger.error(TAG, 'Review request failed:', error);
-    sendResponse({
-      type: 'REVIEW_ERROR',
-      payload: {
-        error: getErrorMessage(error, 'Review failed'),
-      },
-    });
-  }
-}
-
-/**
- * Broadcasts progress to content scripts
- */
-function broadcastProgress(status: string, progress: number, tabId?: number): void {
-  const message = {
-    type: 'REVIEW_PROGRESS' as const,
-    payload: { status, progress },
-  };
-
-  if (tabId) {
-    chrome.tabs.sendMessage(tabId, message).catch(() => {});
-  } else {
-    chrome.tabs.query({ url: 'https://github.com/*/pull/*' }, (tabs) => {
-      tabs.forEach((tab) => {
-        if (tab.id) {
-          chrome.tabs.sendMessage(tab.id, message).catch(() => {});
-        }
-      });
-    });
-  }
-}
-
-/**
- * Gets settings from storage
- */
-async function getSettings(): Promise<ExtensionSettings> {
-  return new Promise((resolve) => {
-    chrome.storage.local.get([STORAGE_KEYS.SETTINGS], (result) => {
-      resolve(result[STORAGE_KEYS.SETTINGS] || DEFAULT_SETTINGS);
-    });
-  });
-}
-
-/**
- * Saves settings to storage
- */
-async function saveSettings(settings: Partial<ExtensionSettings>): Promise<void> {
-  const current = await getSettings();
-  const updated = { ...current, ...settings };
-
-  return new Promise((resolve) => {
-    chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: updated }, resolve);
-  });
-}
-
-/**
- * Gets GitHub token from settings
- */
-export async function getGitHubToken(): Promise<string | undefined> {
-  const settings = await getSettings();
-  return settings.githubToken;
-}
-
-/**
- * Handles fetching diff from GitHub
- */
-async function handleFetchDiff(
-  payload: { owner: string; repo: string; prNumber: number },
-  sendResponse: (response: BackgroundMessage) => void
-): Promise<void> {
-  try {
-    const diffUrl = `${GITHUB_WEB_URL}/${payload.owner}/${payload.repo}/pull/${payload.prNumber}.diff`;
-    logger.debug(TAG, 'Fetching diff from:', diffUrl);
-
-    const response = await fetch(diffUrl);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch diff: ${response.status}`);
-    }
-
-    const diffText = await response.text();
-    logger.debug(TAG, 'Fetched diff, length:', diffText.length);
-
-    sendResponse({
-      type: 'DIFF_RESULT',
-      payload: { diffText },
-    });
-  } catch (error) {
-    logger.error(TAG, 'Error fetching diff:', error);
-    sendResponse({
-      type: 'DIFF_ERROR',
-      payload: { error: getErrorMessage(error, 'Failed to fetch diff') },
-    });
-  }
-}
-
-/**
- * Handles fetching PR context (commit SHAs) from GitHub API
- */
-async function handleFetchPRContext(
-  payload: { owner: string; repo: string; prNumber: number },
-  sendResponse: (response: BackgroundMessage) => void
-): Promise<void> {
-  const { owner, repo, prNumber } = payload;
-
-  try {
-    const apiUrl = `${GITHUB_API_URL}/repos/${owner}/${repo}/pulls/${prNumber}`;
-    logger.debug(TAG, 'Fetching PR context from:', apiUrl);
-
-    const settings = await getSettings();
-    const headers = buildGitHubHeaders(settings.githubToken);
-
-    const response = await fetch(apiUrl, { headers });
-
-    if (!response.ok) {
-      logger.error(TAG, 'GitHub API error:', response.status);
-      throw new Error(`GitHub API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    logger.debug(TAG, 'PR context fetched:', {
-      base_sha: data.base?.sha,
-      head_sha: data.head?.sha,
-    });
-
-    sendResponse({
-      type: 'PR_CONTEXT_RESULT',
-      payload: {
-        owner,
-        repo,
-        prNumber,
-        baseCommitOid: data.base?.sha || '',
-        headCommitOid: data.head?.sha || '',
-      },
-    });
-  } catch (error) {
-    logger.error(TAG, 'Error fetching PR context:', error);
-    sendResponse({
-      type: 'PR_CONTEXT_ERROR',
-      payload: { error: getErrorMessage(error, 'Failed to fetch PR context') },
-    });
-  }
-}
-
-// Cache for pending comments per PR (stored locally until submission)
-const pendingCommentsCache: Map<string, Array<{
+// Pending comments cache per PR
+const pendingComments = new Map<string, Array<{
   path: string;
   line: number;
   body: string;
   side: string;
   startLine?: number;
   startSide?: string;
-}>> = new Map();
+}>>();
 
-/**
- * Get GitHub API headers with Content-Type for POST requests
- */
-async function getGitHubHeadersWithContentType(): Promise<Record<string, string> | null> {
+// Octokit instance (created when needed with token)
+let octokit: Octokit | null = null;
+
+async function getOctokit(): Promise<Octokit | null> {
   const settings = await getSettings();
-
-  if (!settings.githubToken) {
-    logger.error(TAG, 'No GitHub token configured');
-    return null;
+  if (!settings.githubToken) return null;
+  if (!octokit) {
+    octokit = new Octokit({ auth: settings.githubToken });
   }
-
-  return {
-    ...buildGitHubHeaders(settings.githubToken),
-    'Content-Type': 'application/json',
-  };
+  return octokit;
 }
 
-/**
- * Delete any existing pending review for the current user
- */
-async function deleteExistingPendingReview(
-  owner: string,
-  repo: string,
-  prNumber: number,
-  headers: Record<string, string>
-): Promise<void> {
-  try {
-    logger.debug(TAG, 'Checking for existing pending review...');
-    const reviewsUrl = `${GITHUB_API_URL}/repos/${owner}/${repo}/pulls/${prNumber}/reviews`;
+// Initialize
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  handleMessage(msg, sender, sendResponse);
+  return true;
+});
 
-    const response = await fetch(reviewsUrl, { headers });
+chrome.runtime.onConnect.addListener(handleStreamingPort);
 
-    if (!response.ok) {
-      logger.debug(TAG, 'Could not fetch reviews:', response.status);
+chrome.runtime.onInstalled.addListener((details) => {
+  if (details.reason === 'install') {
+    chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: DEFAULT_SETTINGS });
+  }
+});
+
+// Streaming port handler
+function handleStreamingPort(port: chrome.runtime.Port): void {
+  if (!port.name.startsWith('review-stream-')) return;
+
+  let aborted = false;
+  port.onDisconnect.addListener(() => { aborted = true; });
+
+  port.onMessage.addListener(async (msg: StreamPortMessage) => {
+    if (msg.type !== 'START') return;
+
+    const settings = await getSettings();
+    if (!settings.geminiApiKey) {
+      port.postMessage({ type: 'ERROR', payload: { error: 'Please set your Gemini API key in settings.' } });
       return;
     }
 
-    const reviews = await response.json();
+    await requestReviewStream(
+      msg.payload,
+      settings,
+      (suggestion) => !aborted && port.postMessage({ type: 'CHUNK', payload: suggestion }),
+      (summary, assessment) => !aborted && port.postMessage({ type: 'END', payload: { summary, overallAssessment: assessment } }),
+      (error) => !aborted && port.postMessage({ type: 'ERROR', payload: { error } })
+    );
+  });
+}
 
-    // Find pending review(s) - there should only be one per user, but check all
-    const pendingReviews = reviews.filter((r: { state: string }) => r.state === 'PENDING');
+// Message handler
+async function handleMessage(
+  message: ContentMessage,
+  sender: chrome.runtime.MessageSender,
+  sendResponse: (response: BackgroundMessage) => void
+): Promise<void> {
+  try {
+    switch (message.type) {
+      case 'REQUEST_REVIEW':
+        return handleReviewRequest(message.payload, sendResponse);
 
-    for (const review of pendingReviews) {
-      logger.debug(TAG, 'Deleting existing pending review:', review.id);
+      case 'GET_SETTINGS':
+        return sendResponse({ type: 'SETTINGS_RESULT', payload: await getSettings() });
 
-      const deleteUrl = `${GITHUB_API_URL}/repos/${owner}/${repo}/pulls/${prNumber}/reviews/${review.id}`;
+      case 'SAVE_SETTINGS':
+        await saveSettings(message.payload);
+        octokit = null; // Reset octokit to pick up new token
+        return sendResponse({ type: 'SETTINGS_RESULT', payload: await getSettings() });
 
-      const deleteResponse = await fetch(deleteUrl, {
-        method: 'DELETE',
-        headers,
-      });
+      case 'CHECK_CONNECTION':
+        const settings = await getSettings();
+        return sendResponse({ type: 'CONNECTION_STATUS', payload: { connected: !!settings.geminiApiKey, lastPing: Date.now() } });
 
-      if (deleteResponse.ok) {
-        logger.debug(TAG, 'Deleted pending review:', review.id);
-      } else {
-        const errorText = await deleteResponse.text();
-        logger.warn(TAG, 'Failed to delete pending review:', deleteResponse.status, errorText);
-      }
+      case 'FETCH_DIFF':
+        return handleFetchDiff(message.payload, sendResponse);
+
+      case 'FETCH_PR_CONTEXT':
+        return handleFetchPRContext(message.payload, sendResponse);
+
+      case 'POST_COMMENT':
+        return handlePostComment(message.payload, sendResponse);
+
+      case 'SUBMIT_REVIEW':
+        return handleSubmitReview(message.payload, sendResponse);
+
+      default:
+        return sendResponse({ type: 'REVIEW_ERROR', payload: { error: 'Unknown message type' } });
     }
   } catch (error) {
-    logger.error(TAG, 'Error checking/deleting pending reviews:', error);
-    // Continue anyway - the create might still work
+    sendResponse({ type: 'REVIEW_ERROR', payload: { error: error instanceof Error ? error.message : 'Unknown error' } });
   }
 }
 
-/**
- * Handles storing a draft comment locally (will be submitted with review)
- */
+// Review request handler
+async function handleReviewRequest(diff: PRDiff, sendResponse: (r: BackgroundMessage) => void): Promise<void> {
+  const settings = await getSettings();
+  if (!settings.geminiApiKey) {
+    return sendResponse({ type: 'REVIEW_ERROR', payload: { error: 'Please set your Gemini API key in settings.' } });
+  }
+
+  try {
+    const response = await requestReview(diff, settings);
+    sendResponse({ type: 'REVIEW_RESULT', payload: response });
+  } catch (error) {
+    sendResponse({ type: 'REVIEW_ERROR', payload: { error: error instanceof Error ? error.message : 'Review failed' } });
+  }
+}
+
+// Fetch diff
+async function handleFetchDiff(
+  payload: { owner: string; repo: string; prNumber: number },
+  sendResponse: (r: BackgroundMessage) => void
+): Promise<void> {
+  try {
+    const response = await fetch(`${GITHUB_WEB_URL}/${payload.owner}/${payload.repo}/pull/${payload.prNumber}.diff`);
+    if (!response.ok) throw new Error(`Failed to fetch diff: ${response.status}`);
+    sendResponse({ type: 'DIFF_RESULT', payload: { diffText: await response.text() } });
+  } catch (error) {
+    sendResponse({ type: 'DIFF_ERROR', payload: { error: error instanceof Error ? error.message : 'Failed to fetch diff' } });
+  }
+}
+
+// Fetch PR context using Octokit
+async function handleFetchPRContext(
+  payload: { owner: string; repo: string; prNumber: number },
+  sendResponse: (r: BackgroundMessage) => void
+): Promise<void> {
+  const { owner, repo, prNumber } = payload;
+
+  try {
+    const client = await getOctokit();
+    if (!client) {
+      // Fallback to unauthenticated request
+      const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}`);
+      if (!response.ok) throw new Error(`GitHub API error: ${response.status}`);
+      const data = await response.json();
+      return sendResponse({
+        type: 'PR_CONTEXT_RESULT',
+        payload: { owner, repo, prNumber, baseCommitOid: data.base?.sha || '', headCommitOid: data.head?.sha || '' },
+      });
+    }
+
+    const { data } = await client.pulls.get({ owner, repo, pull_number: prNumber });
+    sendResponse({
+      type: 'PR_CONTEXT_RESULT',
+      payload: { owner, repo, prNumber, baseCommitOid: data.base.sha, headCommitOid: data.head.sha },
+    });
+  } catch (error) {
+    sendResponse({ type: 'PR_CONTEXT_ERROR', payload: { error: error instanceof Error ? error.message : 'Failed to fetch PR context' } });
+  }
+}
+
+// Store comment locally
 async function handlePostComment(
-  payload: {
-    owner: string;
-    repo: string;
-    prNumber: number;
-    body: string;
-    path: string;
-    line: number;
-    commitId: string;
-    side?: 'LEFT' | 'RIGHT';
-    startLine?: number;
-    startSide?: 'LEFT' | 'RIGHT';
-  },
-  sendResponse: (response: BackgroundMessage) => void
+  payload: { owner: string; repo: string; prNumber: number; body: string; path: string; line: number; side?: string; startLine?: number; startSide?: string },
+  sendResponse: (r: BackgroundMessage) => void
 ): Promise<void> {
   const { owner, repo, prNumber, body, path, line, side, startLine, startSide } = payload;
-  const cacheKey = `${owner}/${repo}/${prNumber}`;
+  const key = `${owner}/${repo}/${prNumber}`;
 
-  logger.debug(TAG, 'Storing draft comment for PR:', `${owner}/${repo}#${prNumber}`);
-  logger.debug(TAG, 'Comment:', { path, line, startLine });
+  if (!pendingComments.has(key)) pendingComments.set(key, []);
+  const comments = pendingComments.get(key)!;
 
-  try {
-    // Get or create the comments array for this PR
-    if (!pendingCommentsCache.has(cacheKey)) {
-      pendingCommentsCache.set(cacheKey, []);
-    }
+  comments.push({
+    path,
+    line,
+    body,
+    side: side || 'RIGHT',
+    ...(startLine && startLine !== line ? { startLine, startSide: startSide || 'RIGHT' } : {}),
+  });
 
-    const comments = pendingCommentsCache.get(cacheKey)!;
-
-    // Add the comment to the local cache
-    comments.push({
-      path,
-      line,
-      body,
-      side: side || 'RIGHT',
-      ...(startLine && startLine !== line ? {
-        startLine,
-        startSide: startSide || 'RIGHT',
-      } : {}),
-    });
-
-    logger.debug(TAG, 'Draft comment stored. Total pending:', comments.length);
-
-    sendResponse({
-      type: 'POST_COMMENT_RESULT',
-      payload: {
-        success: true,
-        commentId: comments.length, // Just use the index as ID
-      },
-    });
-  } catch (error) {
-    logger.error(TAG, 'Error storing comment:', error);
-    sendResponse({
-      type: 'POST_COMMENT_ERROR',
-      payload: { error: getErrorMessage(error, 'Failed to store comment') },
-    });
-  }
+  sendResponse({ type: 'POST_COMMENT_RESULT', payload: { success: true, commentId: comments.length } });
 }
 
-/**
- * Handles submitting a review with all pending comments
- */
+// Submit review using Octokit
 async function handleSubmitReview(
-  payload: {
-    owner: string;
-    repo: string;
-    prNumber: number;
-    event?: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT'; // Optional - if omitted, review stays as draft
-    body?: string;
-    commitId?: string;
-  },
-  sendResponse: (response: BackgroundMessage) => void
+  payload: { owner: string; repo: string; prNumber: number; event?: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT'; body?: string; commitId?: string },
+  sendResponse: (r: BackgroundMessage) => void
 ): Promise<void> {
   const { owner, repo, prNumber, event, body, commitId } = payload;
-  const cacheKey = `${owner}/${repo}/${prNumber}`;
+  const key = `${owner}/${repo}/${prNumber}`;
 
-  logger.debug(TAG, 'Submitting review for PR:', `${owner}/${repo}#${prNumber}`);
-  logger.debug(TAG, 'Event:', event);
+  const client = await getOctokit();
+  if (!client) {
+    return sendResponse({ type: 'SUBMIT_REVIEW_ERROR', payload: { error: 'GitHub token required. Add it in extension settings.' } });
+  }
+
+  const comments = pendingComments.get(key) || [];
+  if (comments.length === 0) {
+    return sendResponse({ type: 'SUBMIT_REVIEW_ERROR', payload: { error: 'No pending comments to submit.' } });
+  }
 
   try {
-    const headers = await getGitHubHeadersWithContentType();
-
-    if (!headers) {
-      sendResponse({
-        type: 'SUBMIT_REVIEW_ERROR',
-        payload: { error: 'GitHub token required. Please add it in extension settings.' },
-      });
-      return;
+    // Delete existing pending reviews first
+    const { data: reviews } = await client.pulls.listReviews({ owner, repo, pull_number: prNumber });
+    for (const review of reviews.filter(r => r.state === 'PENDING')) {
+      await client.pulls.deletePendingReview({ owner, repo, pull_number: prNumber, review_id: review.id }).catch(() => {});
     }
 
-    // Get pending comments
-    const pendingComments = pendingCommentsCache.get(cacheKey) || [];
-
-    if (pendingComments.length === 0) {
-      sendResponse({
-        type: 'SUBMIT_REVIEW_ERROR',
-        payload: { error: 'No pending comments to submit. Add comments first.' },
-      });
-      return;
-    }
-
-    logger.debug(TAG, 'Submitting review with', pendingComments.length, 'comments');
-
-    // First, check for and delete any existing pending review
-    // (GitHub only allows one pending review per user per PR)
-    await deleteExistingPendingReview(owner, repo, prNumber, headers);
-
-    // Build the review payload with all comments
-    // GitHub REST API supports 'line' and 'side' for comments
-    const reviewComments = pendingComments.map(comment => {
-      const c: Record<string, unknown> = {
-        path: comment.path,
-        body: comment.body,
-        line: comment.line,
-        side: comment.side,
-      };
-
-      // Add multi-line fields if present
-      if (comment.startLine && comment.startLine !== comment.line) {
-        c.start_line = comment.startLine;
-        c.start_side = comment.startSide || comment.side;
-      }
-
-      return c;
+    // Create review with all comments
+    const { data } = await client.pulls.createReview({
+      owner,
+      repo,
+      pull_number: prNumber,
+      commit_id: commitId,
+      body,
+      event: event as 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT' | undefined,
+      comments: comments.map(c => ({
+        path: c.path,
+        body: c.body,
+        line: c.line,
+        side: c.side as 'LEFT' | 'RIGHT',
+        ...(c.startLine ? { start_line: c.startLine, start_side: (c.startSide || c.side) as 'LEFT' | 'RIGHT' } : {}),
+      })),
     });
 
-    const reviewPayload: Record<string, unknown> = {
-      comments: reviewComments,
-    };
-
-    // Only include event if specified - omitting it keeps review as draft
-    if (event) {
-      reviewPayload.event = event;
-    }
-
-    if (body) {
-      reviewPayload.body = body;
-    }
-
-    if (commitId) {
-      reviewPayload.commit_id = commitId;
-    }
-
-    const createUrl = `${GITHUB_API_URL}/repos/${owner}/${repo}/pulls/${prNumber}/reviews`;
-
-    logger.debug(TAG, 'Creating review at:', createUrl);
-
-    const response = await fetch(createUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(reviewPayload),
-    });
-
-    const responseText = await response.text();
-    logger.debug(TAG, 'Response status:', response.status);
-
-    if (response.ok) {
-      const data = JSON.parse(responseText);
-      logger.debug(TAG, 'Review submitted successfully:', data.id);
-
-      // Clear the pending comments cache
-      pendingCommentsCache.delete(cacheKey);
-
-      sendResponse({
-        type: 'SUBMIT_REVIEW_RESULT',
-        payload: {
-          success: true,
-          url: data.html_url,
-        },
-      });
-    } else {
-      let errorMessage = `GitHub API error: ${response.status}`;
-      try {
-        const errorData = JSON.parse(responseText);
-        if (errorData.message) {
-          errorMessage = errorData.message;
-        }
-        if (errorData.errors) {
-          const errors = errorData.errors.map((e: { message?: string; resource?: string; field?: string }) =>
-            e.message || `${e.resource}.${e.field}`
-          ).join(', ');
-          errorMessage += ': ' + errors;
-        }
-      } catch {
-        // Not JSON
-      }
-
-      logger.error(TAG, 'Failed to submit review:', errorMessage);
-      sendResponse({
-        type: 'SUBMIT_REVIEW_ERROR',
-        payload: { error: errorMessage },
-      });
-    }
+    pendingComments.delete(key);
+    sendResponse({ type: 'SUBMIT_REVIEW_RESULT', payload: { success: true, url: data.html_url } });
   } catch (error) {
-    logger.error(TAG, 'Error submitting review:', error);
-    sendResponse({
-      type: 'SUBMIT_REVIEW_ERROR',
-      payload: { error: getErrorMessage(error, 'Failed to submit review') },
-    });
+    const message = error instanceof Error ? error.message : 'Failed to submit review';
+    sendResponse({ type: 'SUBMIT_REVIEW_ERROR', payload: { error: message } });
   }
 }
 
-// Initialize on load
-init();
+// Settings helpers
+async function getSettings(): Promise<ExtensionSettings> {
+  return new Promise(resolve => {
+    chrome.storage.local.get([STORAGE_KEYS.SETTINGS], result => {
+      resolve(result[STORAGE_KEYS.SETTINGS] || DEFAULT_SETTINGS);
+    });
+  });
+}
 
-// Export for testing
+async function saveSettings(settings: Partial<ExtensionSettings>): Promise<void> {
+  const current = await getSettings();
+  return new Promise(resolve => {
+    chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: { ...current, ...settings } }, resolve);
+  });
+}
+
 export { handleMessage, getSettings, saveSettings };
