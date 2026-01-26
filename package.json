@@ -1,0 +1,27 @@
+{
+  "name": "pr-ai-review-extension",
+  "version": "1.0.0",
+  "description": "GitHub PR Review AI Assistant - Chrome Extension",
+  "private": true,
+  "scripts": {
+    "build": "node esbuild.config.js",
+    "watch": "node esbuild.config.js --watch",
+    "clean": "rm -rf dist",
+    "dev": "npm run clean && npm run watch",
+    "package": "npm run clean && npm run build && cd dist && zip -r ../pr-ai-review.zip .",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.268",
+    "@types/node": "^20.14.0",
+    "esbuild": "^0.21.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
