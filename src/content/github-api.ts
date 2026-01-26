@@ -166,16 +166,6 @@ export function extractPRContextFromPage(): PRContext | null {
 }
 
 /**
- * Extract PR context - tries API first, then falls back to page scraping
- * @deprecated Use fetchPRContext() for async version
- */
-export function extractPRContext(): PRContext | null {
-  // For backwards compatibility, return sync version from page
-  // Callers should migrate to fetchPRContext()
-  return extractPRContextFromPage();
-}
-
-/**
  * Post a single-line comment
  */
 export async function postLineComment(

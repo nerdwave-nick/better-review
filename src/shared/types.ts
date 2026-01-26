@@ -2,7 +2,7 @@
 export type SuggestionPriority = 'high' | 'medium' | 'low';
 
 // Types of suggestions the AI can make
-export type SuggestionType = 'comment' | 'code_change' | 'question' | 'approval';
+export type SuggestionType = 'comment' | 'code_change';
 
 // A single line change in a diff
 export interface DiffLine {
@@ -80,11 +80,4 @@ export interface ConnectionStatus {
   connected: boolean;
   lastPing?: number;
   error?: string;
-}
-
-// Suggestion state in UI
-export interface SuggestionState {
-  suggestion: ReviewSuggestion;
-  status: 'pending' | 'accepted' | 'dismissed';
-  expanded: boolean;
 }

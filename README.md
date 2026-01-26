@@ -23,7 +23,6 @@ A Chrome extension that integrates with GitHub Pull Request pages and uses Googl
 ### 1. Build the Extension
 
 ```bash
-cd extension
 npm install
 npm run build
 ```
@@ -33,7 +32,7 @@ npm run build
 1. Open Chrome and go to `chrome://extensions/`
 2. Enable "Developer mode" (toggle in top right)
 3. Click "Load unpacked"
-4. Select the `extension/dist` folder
+4. Select the `dist` folder
 
 ### 3. Configure API Key
 
@@ -124,7 +123,6 @@ This creates `pr-ai-review.zip` for distribution.
 ## Files Structure
 
 ```
-extension/
 ├── manifest.json           # Chrome extension manifest (v3)
 ├── src/
 │   ├── content/

@@ -183,7 +183,7 @@ function handleBackgroundMessage(
 /**
  * Waits a short delay for page to stabilize
  */
-function waitForDiffContent(_timeout: number = 1000): Promise<void> {
+function waitForDiffContent(): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, 500));
 }
 
@@ -245,18 +245,6 @@ function handleNavigation(): void {
   }
 }
 
-/**
- * Check connection status with native host
- */
-async function checkConnection(): Promise<boolean> {
-  try {
-    const response = await sendToBackground({ type: 'CHECK_CONNECTION' });
-    return response.type === 'CONNECTION_STATUS' && response.payload.connected;
-  } catch {
-    return false;
-  }
-}
-
 // Initialize when DOM is ready
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', init);
@@ -265,4 +253,4 @@ if (document.readyState === 'loading') {
 }
 
 // Export for testing
-export { init, handleReviewClick, checkConnection };
+export { init, handleReviewClick };

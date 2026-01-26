@@ -195,17 +195,3 @@ export async function extractPRDiff(): Promise<PRDiff | null> {
     return null;
   }
 }
-
-/**
- * Finds line element - not used with API approach
- */
-export function findLineElement(_filePath: string, _lineNumber: number, _isNew: boolean = true): Element | null {
-  return null;
-}
-
-/**
- * Gets all file paths - not used with API approach
- */
-export function getFilePaths(): string[] {
-  return [];
-}
