@@ -5,18 +5,20 @@ import type {
   BackgroundMessage,
 } from '../shared/messages';
 import type { ExtensionSettings, PRDiff } from '../shared/types';
-
-// Storage key for settings
-const SETTINGS_KEY = 'pr_ai_review_settings';
+import { STORAGE_KEYS, GITHUB_API_URL, GITHUB_WEB_URL, LOG_TAGS } from '../shared/constants';
+import { logger, getErrorMessage } from '../shared/logger';
+import { buildGitHubHeaders } from '../shared/utils';
 
 // Current review state
 let currentReviewTabId: number | null = null;
+
+const TAG = LOG_TAGS.SERVICE_WORKER;
 
 /**
  * Initialize the service worker
  */
 function init(): void {
-  console.log('[Service Worker] Initializing...');
+  logger.info(TAG, 'Initializing...');
 
   // Set up message listener
   chrome.runtime.onMessage.addListener(handleMessage);
@@ -24,7 +26,7 @@ function init(): void {
   // Set up install/update listener
   chrome.runtime.onInstalled.addListener(handleInstalled);
 
-  console.log('[Service Worker] Initialized');
+  logger.info(TAG, 'Initialized');
 }
 
 /**
@@ -33,8 +35,8 @@ function init(): void {
 function handleInstalled(details: chrome.runtime.InstalledDetails): void {
   if (details.reason === 'install') {
     // Initialize default settings
-    chrome.storage.local.set({ [SETTINGS_KEY]: DEFAULT_SETTINGS });
-    console.log('[Service Worker] Extension installed, default settings saved');
+    chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: DEFAULT_SETTINGS });
+    logger.info(TAG, 'Extension installed, default settings saved');
   }
 }
 
@@ -59,7 +61,7 @@ async function handleMessageAsync(
   sender: chrome.runtime.MessageSender,
   sendResponse: (response: BackgroundMessage) => void
 ): Promise<void> {
-  console.log('[Service Worker] Received message:', message.type);
+  logger.debug(TAG, 'Received message:', message.type);
 
   try {
     switch (message.type) {
@@ -120,11 +122,11 @@ async function handleMessageAsync(
         });
     }
   } catch (error) {
-    console.error('[Service Worker] Error handling message:', error);
+    logger.error(TAG, 'Error handling message:', error);
     sendResponse({
       type: 'REVIEW_ERROR',
       payload: {
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: getErrorMessage(error),
       },
     });
   }
@@ -173,11 +175,11 @@ async function handleReviewRequest(
       payload: reviewResponse,
     });
   } catch (error) {
-    console.error('[Service Worker] Review request failed:', error);
+    logger.error(TAG, 'Review request failed:', error);
     sendResponse({
       type: 'REVIEW_ERROR',
       payload: {
-        error: error instanceof Error ? error.message : 'Review failed',
+        error: getErrorMessage(error, 'Review failed'),
       },
     });
   } finally {
@@ -212,8 +214,8 @@ function broadcastProgress(status: string, progress: number, tabId?: number): vo
  */
 async function getSettings(): Promise<ExtensionSettings> {
   return new Promise((resolve) => {
-    chrome.storage.local.get([SETTINGS_KEY], (result) => {
-      resolve(result[SETTINGS_KEY] || DEFAULT_SETTINGS);
+    chrome.storage.local.get([STORAGE_KEYS.SETTINGS], (result) => {
+      resolve(result[STORAGE_KEYS.SETTINGS] || DEFAULT_SETTINGS);
     });
   });
 }
@@ -226,7 +228,7 @@ async function saveSettings(settings: Partial<ExtensionSettings>): Promise<void>
   const updated = { ...current, ...settings };
 
   return new Promise((resolve) => {
-    chrome.storage.local.set({ [SETTINGS_KEY]: updated }, resolve);
+    chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: updated }, resolve);
   });
 }
 
@@ -246,8 +248,8 @@ async function handleFetchDiff(
   sendResponse: (response: BackgroundMessage) => void
 ): Promise<void> {
   try {
-    const diffUrl = `https://github.com/${payload.owner}/${payload.repo}/pull/${payload.prNumber}.diff`;
-    console.log('[Service Worker] Fetching diff from:', diffUrl);
+    const diffUrl = `${GITHUB_WEB_URL}/${payload.owner}/${payload.repo}/pull/${payload.prNumber}.diff`;
+    logger.debug(TAG, 'Fetching diff from:', diffUrl);
 
     const response = await fetch(diffUrl);
     if (!response.ok) {
@@ -255,17 +257,17 @@ async function handleFetchDiff(
     }
 
     const diffText = await response.text();
-    console.log('[Service Worker] Fetched diff, length:', diffText.length);
+    logger.debug(TAG, 'Fetched diff, length:', diffText.length);
 
     sendResponse({
       type: 'DIFF_RESULT',
       payload: { diffText },
     });
   } catch (error) {
-    console.error('[Service Worker] Error fetching diff:', error);
+    logger.error(TAG, 'Error fetching diff:', error);
     sendResponse({
       type: 'DIFF_ERROR',
-      payload: { error: error instanceof Error ? error.message : 'Failed to fetch diff' },
+      payload: { error: getErrorMessage(error, 'Failed to fetch diff') },
     });
   }
 }
@@ -280,28 +282,21 @@ async function handleFetchPRContext(
   const { owner, repo, prNumber } = payload;
 
   try {
-    const apiUrl = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}`;
-    console.log('[Service Worker] Fetching PR context from:', apiUrl);
+    const apiUrl = `${GITHUB_API_URL}/repos/${owner}/${repo}/pulls/${prNumber}`;
+    logger.debug(TAG, 'Fetching PR context from:', apiUrl);
 
     const settings = await getSettings();
-    const headers: Record<string, string> = {
-      'Accept': 'application/vnd.github.v3+json',
-    };
-
-    // Add GitHub token if available for private repos
-    if (settings.githubToken) {
-      headers['Authorization'] = `token ${settings.githubToken}`;
-    }
+    const headers = buildGitHubHeaders(settings.githubToken);
 
     const response = await fetch(apiUrl, { headers });
 
     if (!response.ok) {
-      console.error('[Service Worker] GitHub API error:', response.status);
+      logger.error(TAG, 'GitHub API error:', response.status);
       throw new Error(`GitHub API error: ${response.status}`);
     }
 
     const data = await response.json();
-    console.log('[Service Worker] PR context fetched:', {
+    logger.debug(TAG, 'PR context fetched:', {
       base_sha: data.base?.sha,
       head_sha: data.head?.sha,
     });
@@ -317,10 +312,10 @@ async function handleFetchPRContext(
       },
     });
   } catch (error) {
-    console.error('[Service Worker] Error fetching PR context:', error);
+    logger.error(TAG, 'Error fetching PR context:', error);
     sendResponse({
       type: 'PR_CONTEXT_ERROR',
-      payload: { error: error instanceof Error ? error.message : 'Failed to fetch PR context' },
+      payload: { error: getErrorMessage(error, 'Failed to fetch PR context') },
     });
   }
 }
@@ -336,20 +331,19 @@ const pendingCommentsCache: Map<string, Array<{
 }>> = new Map();
 
 /**
- * Get GitHub API headers
+ * Get GitHub API headers with Content-Type for POST requests
  */
-async function getGitHubHeaders(): Promise<Record<string, string> | null> {
+async function getGitHubHeadersWithContentType(): Promise<Record<string, string> | null> {
   const settings = await getSettings();
 
   if (!settings.githubToken) {
-    console.error('[Service Worker] No GitHub token configured');
+    logger.error(TAG, 'No GitHub token configured');
     return null;
   }
 
   return {
-    'Accept': 'application/vnd.github.v3+json',
+    ...buildGitHubHeaders(settings.githubToken),
     'Content-Type': 'application/json',
-    'Authorization': `token ${settings.githubToken}`,
   };
 }
 
@@ -363,13 +357,13 @@ async function deleteExistingPendingReview(
   headers: Record<string, string>
 ): Promise<void> {
   try {
-    console.log('[Service Worker] Checking for existing pending review...');
-    const reviewsUrl = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/reviews`;
+    logger.debug(TAG, 'Checking for existing pending review...');
+    const reviewsUrl = `${GITHUB_API_URL}/repos/${owner}/${repo}/pulls/${prNumber}/reviews`;
 
     const response = await fetch(reviewsUrl, { headers });
 
     if (!response.ok) {
-      console.log('[Service Worker] Could not fetch reviews:', response.status);
+      logger.debug(TAG, 'Could not fetch reviews:', response.status);
       return;
     }
 
@@ -379,9 +373,9 @@ async function deleteExistingPendingReview(
     const pendingReviews = reviews.filter((r: { state: string }) => r.state === 'PENDING');
 
     for (const review of pendingReviews) {
-      console.log('[Service Worker] Deleting existing pending review:', review.id);
+      logger.debug(TAG, 'Deleting existing pending review:', review.id);
 
-      const deleteUrl = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/reviews/${review.id}`;
+      const deleteUrl = `${GITHUB_API_URL}/repos/${owner}/${repo}/pulls/${prNumber}/reviews/${review.id}`;
 
       const deleteResponse = await fetch(deleteUrl, {
         method: 'DELETE',
@@ -389,14 +383,14 @@ async function deleteExistingPendingReview(
       });
 
       if (deleteResponse.ok) {
-        console.log('[Service Worker] Deleted pending review:', review.id);
+        logger.debug(TAG, 'Deleted pending review:', review.id);
       } else {
         const errorText = await deleteResponse.text();
-        console.warn('[Service Worker] Failed to delete pending review:', deleteResponse.status, errorText);
+        logger.warn(TAG, 'Failed to delete pending review:', deleteResponse.status, errorText);
       }
     }
   } catch (error) {
-    console.error('[Service Worker] Error checking/deleting pending reviews:', error);
+    logger.error(TAG, 'Error checking/deleting pending reviews:', error);
     // Continue anyway - the create might still work
   }
 }
@@ -422,8 +416,8 @@ async function handlePostComment(
   const { owner, repo, prNumber, body, path, line, side, startLine, startSide } = payload;
   const cacheKey = `${owner}/${repo}/${prNumber}`;
 
-  console.log('[Service Worker] Storing draft comment for PR:', `${owner}/${repo}#${prNumber}`);
-  console.log('[Service Worker] Comment:', { path, line, startLine });
+  logger.debug(TAG, 'Storing draft comment for PR:', `${owner}/${repo}#${prNumber}`);
+  logger.debug(TAG, 'Comment:', { path, line, startLine });
 
   try {
     // Get or create the comments array for this PR
@@ -445,7 +439,7 @@ async function handlePostComment(
       } : {}),
     });
 
-    console.log('[Service Worker] Draft comment stored. Total pending:', comments.length);
+    logger.debug(TAG, 'Draft comment stored. Total pending:', comments.length);
 
     sendResponse({
       type: 'POST_COMMENT_RESULT',
@@ -455,10 +449,10 @@ async function handlePostComment(
       },
     });
   } catch (error) {
-    console.error('[Service Worker] Error storing comment:', error);
+    logger.error(TAG, 'Error storing comment:', error);
     sendResponse({
       type: 'POST_COMMENT_ERROR',
-      payload: { error: error instanceof Error ? error.message : 'Failed to store comment' },
+      payload: { error: getErrorMessage(error, 'Failed to store comment') },
     });
   }
 }
@@ -480,11 +474,11 @@ async function handleSubmitReview(
   const { owner, repo, prNumber, event, body, commitId } = payload;
   const cacheKey = `${owner}/${repo}/${prNumber}`;
 
-  console.log('[Service Worker] Submitting review for PR:', `${owner}/${repo}#${prNumber}`);
-  console.log('[Service Worker] Event:', event);
+  logger.debug(TAG, 'Submitting review for PR:', `${owner}/${repo}#${prNumber}`);
+  logger.debug(TAG, 'Event:', event);
 
   try {
-    const headers = await getGitHubHeaders();
+    const headers = await getGitHubHeadersWithContentType();
 
     if (!headers) {
       sendResponse({
@@ -505,7 +499,7 @@ async function handleSubmitReview(
       return;
     }
 
-    console.log('[Service Worker] Submitting review with', pendingComments.length, 'comments');
+    logger.debug(TAG, 'Submitting review with', pendingComments.length, 'comments');
 
     // First, check for and delete any existing pending review
     // (GitHub only allows one pending review per user per PR)
@@ -547,10 +541,9 @@ async function handleSubmitReview(
       reviewPayload.commit_id = commitId;
     }
 
-    const createUrl = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/reviews`;
+    const createUrl = `${GITHUB_API_URL}/repos/${owner}/${repo}/pulls/${prNumber}/reviews`;
 
-    console.log('[Service Worker] Creating review at:', createUrl);
-    console.log('[Service Worker] Review payload:', JSON.stringify(reviewPayload, null, 2));
+    logger.debug(TAG, 'Creating review at:', createUrl);
 
     const response = await fetch(createUrl, {
       method: 'POST',
@@ -559,12 +552,11 @@ async function handleSubmitReview(
     });
 
     const responseText = await response.text();
-    console.log('[Service Worker] Response status:', response.status);
-    console.log('[Service Worker] Response:', responseText);
+    logger.debug(TAG, 'Response status:', response.status);
 
     if (response.ok) {
       const data = JSON.parse(responseText);
-      console.log('[Service Worker] Review submitted successfully:', data.id);
+      logger.debug(TAG, 'Review submitted successfully:', data.id);
 
       // Clear the pending comments cache
       pendingCommentsCache.delete(cacheKey);
@@ -593,17 +585,17 @@ async function handleSubmitReview(
         // Not JSON
       }
 
-      console.error('[Service Worker] Failed to submit review:', errorMessage);
+      logger.error(TAG, 'Failed to submit review:', errorMessage);
       sendResponse({
         type: 'SUBMIT_REVIEW_ERROR',
         payload: { error: errorMessage },
       });
     }
   } catch (error) {
-    console.error('[Service Worker] Error submitting review:', error);
+    logger.error(TAG, 'Error submitting review:', error);
     sendResponse({
       type: 'SUBMIT_REVIEW_ERROR',
-      payload: { error: error instanceof Error ? error.message : 'Failed to submit review' },
+      payload: { error: getErrorMessage(error, 'Failed to submit review') },
     });
   }
 }

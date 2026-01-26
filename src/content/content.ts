@@ -8,8 +8,12 @@ import {
   showToast,
 } from './overlay-ui';
 import { sendToBackground, DEFAULT_SETTINGS } from '../shared/messages';
-import type { BackgroundMessage, ContentMessage } from '../shared/messages';
+import type { BackgroundMessage } from '../shared/messages';
 import type { ReviewResponse, ExtensionSettings } from '../shared/types';
+import { TIMEOUTS, CSS_CLASSES, LOG_TAGS } from '../shared/constants';
+import { logger } from '../shared/logger';
+
+const TAG = LOG_TAGS.CONTENT;
 
 // State
 let isReviewing = false;
@@ -23,11 +27,11 @@ async function init(): Promise<void> {
   // Verify we're on a PR page with diff content
   const metadata = extractPRMetadata();
   if (!metadata) {
-    console.log('[PR AI Review] Not on a PR page, skipping initialization');
+    logger.debug(TAG, 'Not on a PR page, skipping initialization');
     return;
   }
 
-  console.log('[PR AI Review] Initializing on PR page:', metadata);
+  logger.debug(TAG, 'Initializing on PR page:', metadata);
 
   // Load settings
   await loadSettings();
@@ -59,7 +63,7 @@ async function loadSettings(): Promise<void> {
       currentSettings = response.payload;
     }
   } catch (error) {
-    console.warn('[PR AI Review] Failed to load settings:', error);
+    logger.warn(TAG, 'Failed to load settings:', error);
   }
 }
 
@@ -75,7 +79,7 @@ async function handleReviewClick(): Promise<void> {
       updateReviewButtonState('idle');
       showToast('Review cancelled');
     } catch (error) {
-      console.error('[PR AI Review] Failed to cancel review:', error);
+      logger.error(TAG, 'Failed to cancel review:', error);
     }
     return;
   }
@@ -97,7 +101,7 @@ async function handleReviewClick(): Promise<void> {
       throw new Error('No files found in the PR diff.');
     }
 
-    console.log('[PR AI Review] Extracted diff:', {
+    logger.debug(TAG, 'Extracted diff:', {
       files: diff.files.length,
       title: diff.title,
     });
@@ -110,7 +114,7 @@ async function handleReviewClick(): Promise<void> {
 
     handleReviewResponse(response);
   } catch (error) {
-    console.error('[PR AI Review] Review failed:', error);
+    logger.error(TAG, 'Review failed:', error);
     isReviewing = false;
     updateReviewButtonState('error');
     showToast(error instanceof Error ? error.message : 'Review failed', 'error');
@@ -118,7 +122,7 @@ async function handleReviewClick(): Promise<void> {
     // Reset to idle after showing error
     setTimeout(() => {
       updateReviewButtonState('idle');
-    }, 3000);
+    }, TIMEOUTS.BUTTON_STATE_RESET);
   }
 }
 
@@ -149,7 +153,7 @@ function handleReviewResponse(response: BackgroundMessage): void {
 
     setTimeout(() => {
       updateReviewButtonState('idle');
-    }, 3000);
+    }, TIMEOUTS.BUTTON_STATE_RESET);
   }
 }
 
@@ -163,8 +167,7 @@ function handleBackgroundMessage(
 ): boolean {
   switch (message.type) {
     case 'REVIEW_PROGRESS':
-      // Could show progress indicator
-      console.log('[PR AI Review] Progress:', message.payload.status);
+      logger.debug(TAG, 'Progress:', message.payload.status);
       break;
 
     case 'REVIEW_RESULT':
@@ -184,7 +187,7 @@ function handleBackgroundMessage(
  * Waits a short delay for page to stabilize
  */
 function waitForDiffContent(): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, 500));
+  return new Promise(resolve => setTimeout(resolve, TIMEOUTS.DIFF_CONTENT_WAIT));
 }
 
 /**
@@ -220,13 +223,13 @@ function handleNavigation(): void {
   clearSuggestionOverlays();
 
   // Remove existing button
-  const existingButton = document.querySelector('.pr-ai-review-btn');
+  const existingButton = document.querySelector(`.${CSS_CLASSES.REVIEW_BUTTON}`);
   if (existingButton) {
     existingButton.remove();
   }
 
   // Remove existing summary
-  const existingSummary = document.querySelector('.pr-ai-summary');
+  const existingSummary = document.querySelector(`.${CSS_CLASSES.SUMMARY}`);
   if (existingSummary) {
     existingSummary.remove();
   }
@@ -239,9 +242,9 @@ function handleNavigation(): void {
       renderReviewButton(handleReviewClick);
 
       if (currentSettings.autoReviewOnLoad) {
-        waitForDiffContent().then(handleReviewClick).catch(console.error);
+        waitForDiffContent().then(handleReviewClick).catch(err => logger.error(TAG, 'Auto-review failed:', err));
       }
-    }, 500);
+    }, TIMEOUTS.NAVIGATION_DEBOUNCE);
   }
 }
 

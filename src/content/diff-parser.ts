@@ -1,18 +1,16 @@
 import type { PRDiff, FileDiff, DiffHunk } from '../shared/types';
 import { sendToBackground } from '../shared/messages';
+import { extractPRFromUrl } from '../shared/utils';
+import { LOG_TAGS } from '../shared/constants';
+import { logger } from '../shared/logger';
+
+const TAG = LOG_TAGS.DIFF_PARSER;
 
 /**
  * Extracts PR metadata from the current GitHub PR page URL
  */
 export function extractPRMetadata(): { owner: string; repo: string; prNumber: number } | null {
-  const match = window.location.pathname.match(/^\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
-  if (!match) return null;
-
-  return {
-    owner: match[1],
-    repo: match[2],
-    prNumber: parseInt(match[3], 10),
-  };
+  return extractPRFromUrl();
 }
 
 /**
@@ -165,7 +163,7 @@ export async function extractPRDiff(): Promise<PRDiff | null> {
   if (!metadata) return null;
 
   try {
-    console.log('[PR AI Review] Requesting diff via background...');
+    logger.debug(TAG, 'Requesting diff via background...');
 
     const response = await sendToBackground({
       type: 'FETCH_DIFF',
@@ -183,7 +181,7 @@ export async function extractPRDiff(): Promise<PRDiff | null> {
     const files = parseUnifiedDiff(response.payload.diffText);
     const details = extractPRDetails();
 
-    console.log('[PR AI Review] Parsed', files.length, 'files');
+    logger.debug(TAG, 'Parsed', files.length, 'files');
 
     return {
       ...metadata,
@@ -191,7 +189,7 @@ export async function extractPRDiff(): Promise<PRDiff | null> {
       files,
     };
   } catch (error) {
-    console.error('[PR AI Review] Error fetching diff:', error);
+    logger.error(TAG, 'Error fetching diff:', error);
     return null;
   }
 }

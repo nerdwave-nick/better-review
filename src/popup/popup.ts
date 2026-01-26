@@ -1,5 +1,7 @@
 import { sendToBackground, DEFAULT_SETTINGS } from '../shared/messages';
 import type { ExtensionSettings } from '../shared/types';
+import { GITHUB_API_URL, LOG_TAGS } from '../shared/constants';
+import { logger } from '../shared/logger';
 
 // DOM Elements
 const elements = {
@@ -48,7 +50,7 @@ async function loadSettings(): Promise<void> {
       populateForm();
     }
   } catch (error) {
-    console.error('Failed to load settings:', error);
+    logger.error(LOG_TAGS.POPUP, 'Failed to load settings:', error);
   }
 }
 
@@ -150,44 +152,39 @@ function updateFocusCheckboxes(): void {
   elements.focusStyle.disabled = isAllSelected;
 }
 
+// SVG paths for eye icons
+const EYE_ICON_VISIBLE = `
+  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+  <line x1="1" y1="1" x2="23" y2="23"/>
+`;
+
+const EYE_ICON_HIDDEN = `
+  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+  <circle cx="12" cy="12" r="3"/>
+`;
+
+/**
+ * Updates eye icon visibility state
+ */
+function updateEyeIconState(elementId: string, isVisible: boolean): void {
+  const eyeIcon = document.getElementById(elementId);
+  if (eyeIcon) {
+    eyeIcon.innerHTML = isVisible ? EYE_ICON_VISIBLE : EYE_ICON_HIDDEN;
+  }
+}
+
 /**
  * Updates eye icon for Gemini API key visibility
  */
 function updateGeminiEyeIcon(): void {
-  const eyeIcon = document.getElementById('gemini-eye-icon');
-  if (eyeIcon) {
-    if (geminiKeyVisible) {
-      eyeIcon.innerHTML = `
-        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-        <line x1="1" y1="1" x2="23" y2="23"/>
-      `;
-    } else {
-      eyeIcon.innerHTML = `
-        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-        <circle cx="12" cy="12" r="3"/>
-      `;
-    }
-  }
+  updateEyeIconState('gemini-eye-icon', geminiKeyVisible);
 }
 
 /**
  * Updates eye icon for token visibility
  */
 function updateEyeIcon(): void {
-  const eyeIcon = document.getElementById('eye-icon');
-  if (eyeIcon) {
-    if (tokenVisible) {
-      eyeIcon.innerHTML = `
-        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-        <line x1="1" y1="1" x2="23" y2="23"/>
-      `;
-    } else {
-      eyeIcon.innerHTML = `
-        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-        <circle cx="12" cy="12" r="3"/>
-      `;
-    }
-  }
+  updateEyeIconState('eye-icon', tokenVisible);
 }
 
 /**
@@ -231,7 +228,7 @@ async function validateGitHubToken(): Promise<void> {
   showTokenStatus('checking', 'Validating...');
 
   try {
-    const response = await fetch('https://api.github.com/user', {
+    const response = await fetch(`${GITHUB_API_URL}/user`, {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Accept': 'application/vnd.github.v3+json',
@@ -247,6 +244,7 @@ async function validateGitHubToken(): Promise<void> {
       showTokenStatus('invalid', `Error: ${response.status}`);
     }
   } catch (error) {
+    logger.error(LOG_TAGS.POPUP, 'Token validation failed:', error);
     showTokenStatus('invalid', 'Network error');
   }
 }
@@ -305,7 +303,7 @@ async function saveSettings(): Promise<void> {
       await checkConnection();
     }
   } catch (error) {
-    console.error('Failed to save settings:', error);
+    logger.error(LOG_TAGS.POPUP, 'Failed to save settings:', error);
     showSaveStatus('Failed to save');
   } finally {
     elements.saveBtn.textContent = 'Save Settings';
