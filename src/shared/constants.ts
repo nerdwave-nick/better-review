@@ -63,6 +63,9 @@ export const CSS_CLASSES = {
 // PR URL pattern for GitHub
 export const PR_URL_PATTERN = /^\/([^/]+)\/([^/]+)\/pull\/(\d+)/;
 
+// Compare URL pattern for GitHub (PR creation page)
+export const COMPARE_URL_PATTERN = /^\/([^/]+)\/([^/]+)\/compare\/(.+)/;
+
 // Log tags for consistent logging
 export const LOG_TAGS = {
   SERVICE_WORKER: 'ServiceWorker',

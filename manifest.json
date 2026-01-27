@@ -10,6 +10,7 @@
   "host_permissions": [
     "https://github.com/*",
     "https://api.github.com/*",
+    "https://raw.githubusercontent.com/*",
     "https://patch-diff.githubusercontent.com/*",
     "https://generativelanguage.googleapis.com/*"
   ],
@@ -19,7 +20,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://github.com/*/pull/*"],
+      "matches": ["https://github.com/*/pull/*", "https://github.com/*/compare/*"],
       "js": ["content/content.js"],
       "css": ["content/styles.css"],
       "run_at": "document_idle"

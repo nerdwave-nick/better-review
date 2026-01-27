@@ -1,5 +1,5 @@
 import { Octokit } from '@octokit/rest';
-import { requestReview, requestReviewStream } from './gemini-service';
+import { requestReview, requestReviewStream, generatePRDescription } from './gemini-service';
 import { DEFAULT_SETTINGS } from '../shared/messages';
 import type { ContentMessage, BackgroundMessage, StreamPortMessage } from '../shared/messages';
 import type { ExtensionSettings, PRDiff } from '../shared/types';
@@ -94,6 +94,9 @@ async function handleMessage(
       case 'FETCH_DIFF':
         return handleFetchDiff(message.payload, sendResponse);
 
+      case 'FETCH_COMPARE_DIFF':
+        return handleFetchCompareDiff(message.payload, sendResponse);
+
       case 'FETCH_PR_CONTEXT':
         return handleFetchPRContext(message.payload, sendResponse);
 
@@ -102,6 +105,9 @@ async function handleMessage(
 
       case 'SUBMIT_REVIEW':
         return handleSubmitReview(message.payload, sendResponse);
+
+      case 'GENERATE_PR_DESCRIPTION':
+        return handleGeneratePRDescription(message.payload, sendResponse);
 
       default:
         return sendResponse({ type: 'REVIEW_ERROR', payload: { error: 'Unknown message type' } });
@@ -137,6 +143,20 @@ async function handleFetchDiff(
     sendResponse({ type: 'DIFF_RESULT', payload: { diffText: await response.text() } });
   } catch (error) {
     sendResponse({ type: 'DIFF_ERROR', payload: { error: error instanceof Error ? error.message : 'Failed to fetch diff' } });
+  }
+}
+
+// Fetch compare diff (for PR creation page)
+async function handleFetchCompareDiff(
+  payload: { owner: string; repo: string; compareSpec: string },
+  sendResponse: (r: BackgroundMessage) => void
+): Promise<void> {
+  try {
+    const response = await fetch(`${GITHUB_WEB_URL}/${payload.owner}/${payload.repo}/compare/${payload.compareSpec}.diff`);
+    if (!response.ok) throw new Error(`Failed to fetch compare diff: ${response.status}`);
+    sendResponse({ type: 'DIFF_RESULT', payload: { diffText: await response.text() } });
+  } catch (error) {
+    sendResponse({ type: 'DIFF_ERROR', payload: { error: error instanceof Error ? error.message : 'Failed to fetch compare diff' } });
   }
 }
 
@@ -239,6 +259,43 @@ async function handleSubmitReview(
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to submit review';
     sendResponse({ type: 'SUBMIT_REVIEW_ERROR', payload: { error: message } });
+  }
+}
+
+// PR template URL
+const PR_TEMPLATE_URL = 'https://raw.githubusercontent.com/TomesGmbH/.github/main/pull_request_template.md';
+
+// Generate PR description
+async function handleGeneratePRDescription(
+  payload: { owner: string; repo: string; compareSpec: string; template: string },
+  sendResponse: (r: BackgroundMessage) => void
+): Promise<void> {
+  const settings = await getSettings();
+  if (!settings.geminiApiKey) {
+    return sendResponse({ type: 'PR_DESCRIPTION_ERROR', payload: { error: 'Please set your Gemini API key in settings.' } });
+  }
+
+  try {
+    // Fetch the diff and template in parallel
+    const [diffResponse, templateResponse] = await Promise.all([
+      fetch(`${GITHUB_WEB_URL}/${payload.owner}/${payload.repo}/compare/${payload.compareSpec}.diff`),
+      fetch(PR_TEMPLATE_URL),
+    ]);
+
+    if (!diffResponse.ok) throw new Error(`Failed to fetch diff: ${diffResponse.status}`);
+    const diffText = await diffResponse.text();
+
+    // Use fetched template, fallback to payload template if fetch fails
+    let template = payload.template;
+    if (templateResponse.ok) {
+      template = await templateResponse.text();
+    }
+
+    // Generate the description
+    const description = await generatePRDescription(diffText, template, settings.geminiApiKey);
+    sendResponse({ type: 'PR_DESCRIPTION_RESULT', payload: { description } });
+  } catch (error) {
+    sendResponse({ type: 'PR_DESCRIPTION_ERROR', payload: { error: error instanceof Error ? error.message : 'Failed to generate PR description' } });
   }
 }
 

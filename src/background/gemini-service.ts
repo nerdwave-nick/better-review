@@ -583,7 +583,7 @@ function handleGeminiError(error: unknown) {
  * Builds the review prompt from diff and settings
  */
 function buildReviewPrompt(
-  files: FileDiff[], 
+  files: FileDiff[],
   context: ReviewContext,
   settings: ExtensionSettings
 ): string {
@@ -748,5 +748,69 @@ function parseReviewResponse(response: string): ReviewResponse {
       overallAssessment: 'comment',
       reviewedAt: new Date().toISOString(),
     };
+  }
+}
+
+/**
+ * Generate PR description based on a template and diff
+ */
+export async function generatePRDescription(
+  diffText: string,
+  template: string,
+  apiKey: string
+): Promise<string> {
+  if (!apiKey) {
+    throw new Error('Gemini API key is required. Please set it in the extension settings.');
+  }
+
+  const client = getClient(apiKey);
+  const model = client.getGenerativeModel({ model: GEMINI_CONFIG.MODEL });
+
+  // Truncate diff if too long
+  const maxDiffChars = GEMINI_CONFIG.MAX_TOTAL_DIFF_CHARS;
+  const truncatedDiff = diffText.length > maxDiffChars
+    ? diffText.substring(0, maxDiffChars) + '\n\n[... diff truncated for processing ...]'
+    : diffText;
+
+  const prompt = `Fill in this PR template based on the diff. Be EXTREMELY brief.
+
+Template:
+${template || '## Summary\n\n## Changes'}
+
+Diff:
+${truncatedDiff}
+
+Rules:
+- Max 2 short sentences per section
+- Bullet points: max 5-7 words each
+- Ultra short explanations, ideally just facts
+- Leave checkboxes unchecked [ ]
+- Output ONLY the filled template`;
+
+  logger.debug(TAG, 'Generating PR description');
+
+  try {
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      systemInstruction: {
+        role: 'model',
+        parts: [{ text: 'Ultra-concise PR descriptions. Minimum words. No fluff.' }],
+      },
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 5000,
+      },
+    });
+
+    const responseText = result.response.text();
+    if (!responseText) {
+      throw new Error('Empty response from Gemini');
+    }
+
+    logger.debug(TAG, 'PR description generated successfully');
+    return responseText.trim();
+  } catch (error: unknown) {
+    handleGeminiError(error);
+    throw error;
   }
 }

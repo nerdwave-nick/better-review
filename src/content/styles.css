@@ -280,6 +280,59 @@
   font-weight: 500;
 }
 
+/* PR Description Button */
+.pr-ai-description-btn {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 4px;
+  background: var(--pr-ai-primary) !important;
+  color: white !important;
+  border: none !important;
+  font-weight: 500;
+  padding: 5px 12px !important;
+  margin-right: 8px !important;
+  border-radius: 6px !important;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-size: 12px !important;
+  line-height: 20px !important;
+  vertical-align: middle;
+}
+
+.pr-ai-description-btn:hover:not(:disabled) {
+  background: var(--pr-ai-primary-hover) !important;
+}
+
+.pr-ai-description-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.pr-ai-description-btn--loading {
+  background: var(--pr-ai-primary) !important;
+}
+
+.pr-ai-description-btn--error {
+  background: var(--pr-ai-danger) !important;
+}
+
+.pr-ai-description-btn svg {
+  stroke: white !important;
+  flex-shrink: 0;
+}
+
+/* Floating variant for description button */
+.pr-ai-description-btn--floating {
+  position: fixed !important;
+  bottom: 80px;
+  right: 24px;
+  z-index: 9998;
+  padding: 10px 16px !important;
+  border-radius: 10px !important;
+  box-shadow: 0 4px 16px rgba(124, 58, 237, 0.35) !important;
+  font-size: 13px !important;
+}
+
 .pr-ai-review-btn:hover:not(:disabled) {
   background: var(--pr-ai-primary-hover) !important;
 }

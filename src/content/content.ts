@@ -9,18 +9,22 @@ import {
   initializeSuggestions,
   appendSuggestion,
   finalizeSuggestions,
-  showStreamingSummary
+  showStreamingSummary,
+  renderPRDescriptionButton,
+  updatePRDescriptionButtonState
 } from './overlay-ui';
 import { sendToBackground, DEFAULT_SETTINGS } from '../shared/messages';
 import type { BackgroundMessage, StreamPortMessage } from '../shared/messages';
 import type { ReviewResponse, ExtensionSettings, PRDiff } from '../shared/types';
 import { TIMEOUTS, CSS_CLASSES, LOG_TAGS } from '../shared/constants';
 import { logger } from '../shared/logger';
+import { extractCompareFromUrl } from '../shared/utils';
 
 const TAG = LOG_TAGS.CONTENT;
 
 // State
 let isReviewing = false;
+let isGeneratingDescription = false;
 let currentSettings: ExtensionSettings = DEFAULT_SETTINGS;
 let lastReviewResponse: ReviewResponse | null = null;
 let currentDiff: PRDiff | null = null;
@@ -30,33 +34,181 @@ let currentPort: chrome.runtime.Port | null = null;
  * Initialize the extension on GitHub PR pages
  */
 async function init(): Promise<void> {
-  // Verify we're on a PR page with diff content
-  const metadata = extractPRMetadata();
-  if (!metadata) {
-    logger.debug(TAG, 'Not on a PR page, skipping initialization');
-    return;
-  }
-
-  logger.debug(TAG, 'Initializing on PR page:', metadata);
-
   // Load settings
   await loadSettings();
 
-  // Add the review button to the page
-  renderReviewButton(handleReviewClick);
+  // Check if we're on a PR page
+  const metadata = extractPRMetadata();
+  if (metadata) {
+    logger.debug(TAG, 'Initializing on PR page:', metadata);
 
-  // Set up message listener for background script responses
-  chrome.runtime.onMessage.addListener(handleBackgroundMessage);
+    // Add the review button to the page
+    renderReviewButton(handleReviewClick);
 
-  // Auto-review if enabled
-  if (currentSettings.autoReviewOnLoad) {
-    // Wait for diff content to fully load
-    await waitForDiffContent();
-    handleReviewClick();
+    // Set up message listener for background script responses
+    chrome.runtime.onMessage.addListener(handleBackgroundMessage);
+
+    // Auto-review if enabled
+    if (currentSettings.autoReviewOnLoad) {
+      // Wait for diff content to fully load
+      await waitForDiffContent();
+      handleReviewClick();
+    }
   }
+
+  // Check for PR description textarea (on both PR pages and compare pages)
+  initPRDescriptionButton();
 
   // Set up mutation observer for SPA navigation
   setupNavigationObserver();
+}
+
+/**
+ * Initialize the PR description generation button
+ * Works on compare pages (new PR) and PR pages (when editing description)
+ */
+function initPRDescriptionButton(): void {
+  // Wait for GitHub's UI to load, then try to add the button
+  const tryAddButton = () => {
+    const compareMetadata = extractCompareFromUrl();
+    const prMetadata = extractPRMetadata();
+
+    if (compareMetadata || prMetadata) {
+      renderPRDescriptionButton(handleGenerateDescription);
+    }
+  };
+
+  // Try immediately
+  tryAddButton();
+
+  // Also retry after a short delay (GitHub loads UI dynamically)
+  setTimeout(tryAddButton, 1000);
+  setTimeout(tryAddButton, 2000);
+}
+
+/**
+ * Handles click on the Generate PR Description button
+ */
+async function handleGenerateDescription(): Promise<void> {
+  if (isGeneratingDescription) {
+    showToast('Already generating description...');
+    return;
+  }
+
+  // Find the description textarea
+  const textarea = findPRDescriptionTextarea();
+  if (!textarea) {
+    showToast('Could not find PR description field', 'error');
+    return;
+  }
+
+  const compareMetadata = extractCompareFromUrl();
+  const prMetadata = extractPRMetadata();
+
+  if (!compareMetadata && !prMetadata) {
+    showToast('Not on a PR or compare page', 'error');
+    return;
+  }
+
+  isGeneratingDescription = true;
+  updatePRDescriptionButtonState('loading');
+
+  try {
+    // Get the current template (what's already in the textarea)
+    const template = textarea.value || '';
+
+    if (compareMetadata) {
+      // On compare page - fetch diff from compare URL
+      const response = await sendToBackground({
+        type: 'GENERATE_PR_DESCRIPTION',
+        payload: {
+          owner: compareMetadata.owner,
+          repo: compareMetadata.repo,
+          compareSpec: compareMetadata.compareSpec,
+          template,
+        },
+      });
+
+      if (response.type === 'PR_DESCRIPTION_RESULT') {
+        textarea.value = response.payload.description;
+        // Trigger input event so GitHub's UI updates
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        showToast('PR description generated!');
+      } else if (response.type === 'PR_DESCRIPTION_ERROR') {
+        throw new Error(response.payload.error);
+      }
+    } else if (prMetadata) {
+      // On PR page - fetch diff from PR URL
+      const diffResponse = await sendToBackground({
+        type: 'FETCH_DIFF',
+        payload: prMetadata,
+      });
+
+      if (diffResponse.type === 'DIFF_ERROR') {
+        throw new Error(diffResponse.payload.error);
+      }
+
+      if (diffResponse.type === 'DIFF_RESULT') {
+        const settingsResponse = await sendToBackground({ type: 'GET_SETTINGS' });
+        if (settingsResponse.type !== 'SETTINGS_RESULT' || !settingsResponse.payload.geminiApiKey) {
+          throw new Error('Please set your Gemini API key in settings.');
+        }
+
+        // Create a temporary compare spec for the generate endpoint
+        const response = await sendToBackground({
+          type: 'GENERATE_PR_DESCRIPTION',
+          payload: {
+            owner: prMetadata.owner,
+            repo: prMetadata.repo,
+            compareSpec: `pull/${prMetadata.prNumber}`, // This won't be used since we pass diff directly
+            template,
+          },
+        });
+
+        if (response.type === 'PR_DESCRIPTION_RESULT') {
+          textarea.value = response.payload.description;
+          textarea.dispatchEvent(new Event('input', { bubbles: true }));
+          showToast('PR description generated!');
+        } else if (response.type === 'PR_DESCRIPTION_ERROR') {
+          throw new Error(response.payload.error);
+        }
+      }
+    }
+  } catch (error) {
+    logger.error(TAG, 'Failed to generate PR description:', error);
+    showToast(error instanceof Error ? error.message : 'Failed to generate description', 'error');
+  } finally {
+    isGeneratingDescription = false;
+    updatePRDescriptionButtonState('idle');
+  }
+}
+
+/**
+ * Find the PR description textarea on the page
+ */
+function findPRDescriptionTextarea(): HTMLTextAreaElement | null {
+  // Try different selectors for GitHub's PR description textarea
+  const selectors = [
+    // New PR creation (compare page)
+    'textarea[name="pull_request[body]"]',
+    'textarea#pull_request_body',
+    // PR edit mode
+    'textarea[name="issue[body]"]',
+    'textarea#issue_body',
+    // Generic markdown editor
+    'textarea.js-comment-field',
+    // New GitHub interface
+    'textarea[data-testid="markdown-editor-input"]',
+  ];
+
+  for (const selector of selectors) {
+    const textarea = document.querySelector(selector) as HTMLTextAreaElement | null;
+    if (textarea) {
+      return textarea;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -282,14 +434,21 @@ function handleNavigation(): void {
     currentPort = null;
   }
   isReviewing = false;
+  isGeneratingDescription = false;
   lastReviewResponse = null;
   currentDiff = null;
   clearSuggestionOverlays();
 
-  // Remove existing button
+  // Remove existing buttons
   const existingButton = document.querySelector(`.${CSS_CLASSES.REVIEW_BUTTON}`);
   if (existingButton) {
     existingButton.remove();
+  }
+
+  // Remove PR description button
+  const existingDescButton = document.querySelector('.pr-ai-description-btn');
+  if (existingDescButton) {
+    existingDescButton.remove();
   }
 
   // Remove existing summary
@@ -298,18 +457,21 @@ function handleNavigation(): void {
     existingSummary.remove();
   }
 
-  // Check if we're on a PR page and re-initialize
-  const metadata = extractPRMetadata();
-  if (metadata) {
-    // Wait a bit for the new content to load
-    setTimeout(() => {
+  // Wait a bit for the new content to load
+  setTimeout(() => {
+    // Check if we're on a PR page and re-initialize review button
+    const metadata = extractPRMetadata();
+    if (metadata) {
       renderReviewButton(handleReviewClick);
 
       if (currentSettings.autoReviewOnLoad) {
         waitForDiffContent().then(handleReviewClick).catch(err => logger.error(TAG, 'Auto-review failed:', err));
       }
-    }, TIMEOUTS.NAVIGATION_DEBOUNCE);
-  }
+    }
+
+    // Re-initialize PR description button
+    initPRDescriptionButton();
+  }, TIMEOUTS.NAVIGATION_DEBOUNCE);
 }
 
 // Initialize when DOM is ready

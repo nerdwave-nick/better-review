@@ -201,7 +201,7 @@ function collapseStreamingSummary(): void {
     `;
 
     // Add toggle functionality
-    const toggleBtn = header.querySelector('.pr-ai-streaming-summary__toggle');
+    const toggleBtn = header.querySelector('.pr-ai-streaming-summary__toggle') as HTMLButtonElement | null;
     toggleBtn?.addEventListener('click', (e) => {
       e.stopPropagation();
       summaryEl.classList.toggle('pr-ai-streaming-summary--collapsed');
@@ -510,6 +510,102 @@ async function handleSubmit(): Promise<void> {
     showToast(`Failed: ${result.error}`, 'error');
     btn.disabled = false;
     btn.innerHTML = '\u2714 Save Review';
+  }
+}
+
+/**
+ * Render the PR description generation button next to the Create PR button
+ */
+export function renderPRDescriptionButton(onClick: () => void): HTMLElement | null {
+  // Remove existing button if any
+  document.querySelector('.pr-ai-description-btn')?.remove();
+
+  // Find the target location - look for "Create pull request" button or edit form
+  const targetSelectors = [
+    // New PR creation form - primary button container
+    '.js-pull-request-form .BtnGroup',
+    '.js-pull-request-form .form-actions',
+    // Newer GitHub UI
+    '[data-testid="create-pr-footer"]',
+    // Edit PR description - look for the comment form actions
+    '.js-previewable-comment-form .form-actions',
+    // Generic form actions
+    '.comment-form-actions',
+  ];
+
+  let targetContainer: Element | null = null;
+  for (const selector of targetSelectors) {
+    targetContainer = document.querySelector(selector);
+    if (targetContainer) break;
+  }
+
+  // Also check if we have a PR description textarea visible
+  const textarea = document.querySelector(
+    'textarea[name="pull_request[body]"], textarea#pull_request_body, textarea[name="issue[body]"], textarea#issue_body'
+  );
+
+  if (!textarea && !targetContainer) {
+    return null;
+  }
+
+  const button = document.createElement('button');
+  button.className = 'pr-ai-description-btn btn btn-sm';
+  button.type = 'button';
+  button.innerHTML = `
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+    </svg>
+    AI Description
+  `;
+  button.title = 'Generate PR description using AI';
+  button.addEventListener('click', (e) => {
+    e.preventDefault();
+    onClick();
+  });
+
+  // Try to insert the button in the best location
+  if (targetContainer) {
+    // Insert at the beginning of the button group
+    const firstButton = targetContainer.querySelector('button, .btn');
+    if (firstButton) {
+      firstButton.parentNode?.insertBefore(button, firstButton);
+    } else {
+      targetContainer.insertBefore(button, targetContainer.firstChild);
+    }
+  } else if (textarea) {
+    // Fallback: create a floating button near the textarea
+    button.classList.add('pr-ai-description-btn--floating');
+    document.body.appendChild(button);
+  }
+
+  return button;
+}
+
+/**
+ * Update the state of the PR description button
+ */
+export function updatePRDescriptionButtonState(buttonState: 'idle' | 'loading' | 'error'): void {
+  const button = document.querySelector('.pr-ai-description-btn') as HTMLButtonElement;
+  if (!button) return;
+
+  button.disabled = buttonState === 'loading';
+  button.classList.toggle('pr-ai-description-btn--loading', buttonState === 'loading');
+  button.classList.toggle('pr-ai-description-btn--error', buttonState === 'error');
+
+  if (buttonState === 'loading') {
+    button.innerHTML = `
+      <svg class="pr-ai-spinner" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10" stroke-dasharray="50" stroke-linecap="round"/>
+      </svg>
+      Generating...
+    `;
+  } else {
+    button.innerHTML = `
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
+        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+      </svg>
+      AI Description
+    `;
   }
 }
 

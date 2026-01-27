@@ -31,13 +31,22 @@ export type SubmitReviewPayload = {
   commitId?: string;
 };
 
+export type GeneratePRDescriptionPayload = {
+  owner: string;
+  repo: string;
+  compareSpec: string;
+  template: string;
+};
+
 export type ContentMessage =
   | { type: 'REQUEST_REVIEW'; payload: PRDiff }
   | { type: 'REQUEST_REVIEW_STREAM'; payload: PRDiff }
   | { type: 'FETCH_DIFF'; payload: { owner: string; repo: string; prNumber: number } }
+  | { type: 'FETCH_COMPARE_DIFF'; payload: { owner: string; repo: string; compareSpec: string } }
   | { type: 'FETCH_PR_CONTEXT'; payload: { owner: string; repo: string; prNumber: number } }
   | { type: 'POST_COMMENT'; payload: PostCommentPayload }
   | { type: 'SUBMIT_REVIEW'; payload: SubmitReviewPayload }
+  | { type: 'GENERATE_PR_DESCRIPTION'; payload: GeneratePRDescriptionPayload }
   | { type: 'GET_SETTINGS' }
   | { type: 'SAVE_SETTINGS'; payload: Partial<ExtensionSettings> }
   | { type: 'CHECK_CONNECTION' }
@@ -67,7 +76,9 @@ export type BackgroundMessage =
   | { type: 'POST_COMMENT_RESULT'; payload: { success: boolean; commentId?: number; url?: string } }
   | { type: 'POST_COMMENT_ERROR'; payload: { error: string } }
   | { type: 'SUBMIT_REVIEW_RESULT'; payload: { success: boolean; url?: string } }
-  | { type: 'SUBMIT_REVIEW_ERROR'; payload: { error: string } };
+  | { type: 'SUBMIT_REVIEW_ERROR'; payload: { error: string } }
+  | { type: 'PR_DESCRIPTION_RESULT'; payload: { description: string } }
+  | { type: 'PR_DESCRIPTION_ERROR'; payload: { error: string } };
 
 // Helper to send message to background script
 export function sendToBackground(message: ContentMessage): Promise<BackgroundMessage> {
