@@ -287,6 +287,54 @@ const isPosting = ref(false);
 const isPostingAll = ref(false);
 const isSubmitting = ref(false);
 
+// Helper: Get original code lines for a suggestion
+function getOriginalCodeLines(suggestion: ReviewSuggestion): string[] {
+  if (!store.diff) return [];
+  const start = suggestion.lineRange?.start ?? suggestion.lineNumber;
+  const end = suggestion.lineRange?.end ?? suggestion.lineNumber;
+
+  const file = store.diff.files.find(f => f.path === suggestion.filePath);
+  if (!file) return [];
+
+  const lines: string[] = [];
+  for (const hunk of file.hunks) {
+    for (const line of hunk.lines) {
+      if (line.newLineNumber !== null && line.newLineNumber >= start && line.newLineNumber <= end) {
+        lines.push(line.content);
+      }
+    }
+  }
+  return lines;
+}
+
+// Helper: Normalize suggested code indentation to match original
+function normalizeIndentation(suggestedCode: string, originalLines: string[]): string {
+  if (!suggestedCode || originalLines.length === 0) return suggestedCode;
+
+  // Get base indentation from first non-empty original line
+  const firstNonEmpty = originalLines.find(l => l.trim().length > 0);
+  if (!firstNonEmpty) return suggestedCode;
+
+  const baseIndent = firstNonEmpty.match(/^(\s*)/)?.[1] || '';
+  if (!baseIndent) return suggestedCode; // No indentation needed
+
+  // Check if suggested code is missing the base indentation
+  const suggestedLines = suggestedCode.split('\n');
+  const firstNonEmptySuggested = suggestedLines.find(l => l.trim().length > 0);
+  if (!firstNonEmptySuggested) return suggestedCode;
+
+  const suggestedIndent = firstNonEmptySuggested.match(/^(\s*)/)?.[1] || '';
+
+  // If suggested code already has similar or more indentation, leave it alone
+  if (suggestedIndent.length >= baseIndent.length) return suggestedCode;
+
+  // Add base indentation to each non-empty line
+  return suggestedLines.map(line => {
+    if (line.trim().length === 0) return line; // Preserve empty lines as-is
+    return baseIndent + line.trimStart();
+  }).join('\n');
+}
+
 // Computed
 const isLoading = computed(() => store.mode === 'streaming' && !store.isFinalized);
 const currentSuggestion = computed(() => store.suggestions[store.currentIndex]);
@@ -330,7 +378,11 @@ const originalCodeLines = computed(() => {
 
 const suggestedCodeLines = computed(() => {
   if (!currentSuggestion.value?.suggestedCode) return [];
-  return currentSuggestion.value.suggestedCode.split('\n');
+  const normalized = normalizeIndentation(
+    currentSuggestion.value.suggestedCode,
+    originalCodeLines.value
+  );
+  return normalized.split('\n');
 });
 
 // Extract diff context lines around the suggestion for the popout
@@ -449,7 +501,14 @@ async function postSuggestion(suggestion: ReviewSuggestion): Promise<boolean> {
     return false;
   }
 
-  const comment = formatSuggestionComment(suggestion.description, suggestion.suggestedCode);
+  // Normalize indentation for suggested code to match original
+  let normalizedCode = suggestion.suggestedCode;
+  if (normalizedCode) {
+    const originalLines = getOriginalCodeLines(suggestion);
+    normalizedCode = normalizeIndentation(normalizedCode, originalLines);
+  }
+
+  const comment = formatSuggestionComment(suggestion.description, normalizedCode);
   const hasLineRange = suggestion.lineRange && suggestion.lineRange.start !== suggestion.lineRange.end;
 
   const success = hasLineRange && suggestion.lineRange
