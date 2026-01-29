@@ -1,4 +1,5 @@
 const esbuild = require('esbuild');
+const vuePlugin = require('esbuild-plugin-vue3');
 const fs = require('fs');
 
 const isWatch = process.argv.includes('--watch');
@@ -55,8 +56,8 @@ const builds = [
     format: 'esm',
   },
   {
-    entryPoints: ['src/popup/popup.ts'],
-    outfile: 'dist/popup/popup.js',
+    entryPoints: ['src/ui/views/popup/main.ts'],
+    outfile: 'dist/popup/vue_popup.js',
     format: 'iife',
   },
 ];
@@ -67,6 +68,12 @@ const commonOptions = {
   sourcemap: true,
   target: ['chrome100'],
   minify: !isWatch,
+  plugins: [vuePlugin()],
+  define: {
+    'process.env.NODE_ENV': isWatch ? '"development"' : '"production"',
+    '__VUE_OPTIONS_API__': 'true',
+    '__VUE_PROD_DEVTOOLS__': 'false',
+  },
 };
 
 async function build() {
