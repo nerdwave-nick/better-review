@@ -1282,3 +1282,85 @@
     background: rgba(16, 185, 129, 0.25);
     color: #34d399;
 }
+
+/* Provider Status Display */
+.pr-ai-provider-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.pr-ai-provider-active {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  background: rgba(124, 58, 237, 0.15);
+  color: var(--pr-ai-primary);
+  border-radius: 4px;
+  animation: pr-ai-pulse 1.5s ease-in-out infinite;
+}
+
+.pr-ai-provider-active::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  background: var(--pr-ai-primary);
+  border-radius: 50%;
+}
+
+.pr-ai-provider-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--pr-ai-danger);
+  border-radius: 4px;
+  cursor: help;
+}
+
+/* Confidence Badge Styles */
+.pr-ai-confidence-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.pr-ai-confidence-badge--high {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+.pr-ai-confidence-badge--medium {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+
+.pr-ai-confidence-badge--low {
+  background: rgba(156, 163, 175, 0.15);
+  color: #9ca3af;
+}
+
+/* Dark mode adjustments for confidence badges */
+[data-color-mode="dark"] .pr-ai-confidence-badge--high,
+.dark .pr-ai-confidence-badge--high {
+  background: rgba(16, 185, 129, 0.25);
+  color: #34d399;
+}
+
+[data-color-mode="dark"] .pr-ai-confidence-badge--medium,
+.dark .pr-ai-confidence-badge--medium {
+  background: rgba(245, 158, 11, 0.25);
+  color: #fbbf24;
+}
+
+[data-color-mode="dark"] .pr-ai-confidence-badge--low,
+.dark .pr-ai-confidence-badge--low {
+  background: rgba(156, 163, 175, 0.25);
+  color: #d1d5db;
+}

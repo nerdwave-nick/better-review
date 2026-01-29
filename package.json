@@ -13,9 +13,12 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.21.0",
+    "@ai-sdk/google": "^3.0.16",
+    "@anthropic-ai/sdk": "^0.52.0",
     "@octokit/rest": "^22.0.1",
-    "parse-diff": "^0.11.1"
+    "ai": "^6.0.60",
+    "parse-diff": "^0.11.1",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.268",

@@ -1,5 +1,6 @@
 import { Octokit } from '@octokit/rest';
-import { requestReview, requestReviewStream, generatePRDescription } from './gemini-service';
+import { requestReview, generatePRDescription } from './gemini-service';
+import { orchestrateReview, hasAvailableProviders } from './orchestrator';
 import { DEFAULT_SETTINGS } from '../shared/messages';
 import type { ContentMessage, BackgroundMessage, StreamPortMessage } from '../shared/messages';
 import type { ExtensionSettings, PRDiff } from '../shared/types';
@@ -52,18 +53,24 @@ function handleStreamingPort(port: chrome.runtime.Port): void {
     if (msg.type !== 'START') return;
 
     const settings = await getSettings();
-    if (!settings.geminiApiKey) {
-      port.postMessage({ type: 'ERROR', payload: { error: 'Please set your Gemini API key in settings.' } });
+    if (!hasAvailableProviders(settings)) {
+      port.postMessage({ type: 'ERROR', payload: { error: 'No AI providers configured. Please set up at least one API key in settings.' } });
       return;
     }
 
-    await requestReviewStream(
+    await orchestrateReview(
       msg.payload,
       settings,
-      (suggestion) => !aborted && port.postMessage({ type: 'CHUNK', payload: suggestion }),
-      (summary, assessment) => !aborted && port.postMessage({ type: 'END', payload: { summary, overallAssessment: assessment } }),
-      (error) => !aborted && port.postMessage({ type: 'ERROR', payload: { error } }),
-      (summaryData) => !aborted && port.postMessage({ type: 'SUMMARY', payload: summaryData })
+      {
+        onSuggestion: (suggestion) => !aborted && port.postMessage({ type: 'CONSENSUS_CHUNK', payload: suggestion }),
+        onSuggestionUpdate: (id, suggestion) => !aborted && port.postMessage({ type: 'CHUNK_UPDATE', payload: { id, suggestion } }),
+        onSummary: (summaryData) => !aborted && port.postMessage({ type: 'SUMMARY', payload: summaryData }),
+        onProviderStarted: (provider) => !aborted && port.postMessage({ type: 'PROVIDER_STARTED', payload: { provider } }),
+        onProviderCompleted: (provider, count) => !aborted && port.postMessage({ type: 'PROVIDER_COMPLETED', payload: { provider, count } }),
+        onProviderError: (provider, error) => !aborted && port.postMessage({ type: 'PROVIDER_ERROR', payload: { provider, error } }),
+        onComplete: (summary, assessment) => !aborted && port.postMessage({ type: 'END', payload: { summary, overallAssessment: assessment } }),
+        onError: (error) => !aborted && port.postMessage({ type: 'ERROR', payload: { error } }),
+      }
     );
   });
 }
@@ -71,7 +78,7 @@ function handleStreamingPort(port: chrome.runtime.Port): void {
 // Message handler
 async function handleMessage(
   message: ContentMessage,
-  sender: chrome.runtime.MessageSender,
+  _sender: chrome.runtime.MessageSender,
   sendResponse: (response: BackgroundMessage) => void
 ): Promise<void> {
   try {
@@ -89,7 +96,7 @@ async function handleMessage(
 
       case 'CHECK_CONNECTION':
         const settings = await getSettings();
-        return sendResponse({ type: 'CONNECTION_STATUS', payload: { connected: !!settings.geminiApiKey, lastPing: Date.now() } });
+        return sendResponse({ type: 'CONNECTION_STATUS', payload: { connected: hasAvailableProviders(settings), lastPing: Date.now() } });
 
       case 'FETCH_DIFF':
         return handleFetchDiff(message.payload, sendResponse);
@@ -120,13 +127,18 @@ async function handleMessage(
 // Review request handler
 async function handleReviewRequest(diff: PRDiff, sendResponse: (r: BackgroundMessage) => void): Promise<void> {
   const settings = await getSettings();
-  if (!settings.geminiApiKey) {
-    return sendResponse({ type: 'REVIEW_ERROR', payload: { error: 'Please set your Gemini API key in settings.' } });
+  if (!hasAvailableProviders(settings)) {
+    return sendResponse({ type: 'REVIEW_ERROR', payload: { error: 'No AI providers configured. Please set up at least one API key in settings.' } });
   }
 
   try {
-    const response = await requestReview(diff, settings);
-    sendResponse({ type: 'REVIEW_RESULT', payload: response });
+    // For non-streaming requests, use the legacy Gemini path if available
+    if (settings.geminiApiKey) {
+      const response = await requestReview(diff, settings);
+      sendResponse({ type: 'REVIEW_RESULT', payload: response });
+    } else {
+      sendResponse({ type: 'REVIEW_ERROR', payload: { error: 'Non-streaming review requires Gemini API key.' } });
+    }
   } catch (error) {
     sendResponse({ type: 'REVIEW_ERROR', payload: { error: error instanceof Error ? error.message : 'Review failed' } });
   }

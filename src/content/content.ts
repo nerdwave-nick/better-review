@@ -8,14 +8,18 @@ import {
   showToast,
   initializeSuggestions,
   appendSuggestion,
+  updateSuggestion,
   finalizeSuggestions,
   showStreamingSummary,
   renderPRDescriptionButton,
-  updatePRDescriptionButtonState
+  updatePRDescriptionButtonState,
+  providerStarted,
+  providerCompleted,
+  providerError
 } from './overlay-ui';
 import { sendToBackground, DEFAULT_SETTINGS } from '../shared/messages';
 import type { BackgroundMessage, StreamPortMessage } from '../shared/messages';
-import type { ReviewResponse, ExtensionSettings, PRDiff } from '../shared/types';
+import type { ExtensionSettings, PRDiff } from '../shared/types';
 import { TIMEOUTS, CSS_CLASSES, LOG_TAGS } from '../shared/constants';
 import { logger } from '../shared/logger';
 import { extractCompareFromUrl } from '../shared/utils';
@@ -26,7 +30,6 @@ const TAG = LOG_TAGS.CONTENT;
 let isReviewing = false;
 let isGeneratingDescription = false;
 let currentSettings: ExtensionSettings = DEFAULT_SETTINGS;
-let lastReviewResponse: ReviewResponse | null = null;
 let currentDiff: PRDiff | null = null;
 let currentPort: chrome.runtime.Port | null = null;
 
@@ -281,12 +284,33 @@ async function handleReviewClick(): Promise<void> {
           showStreamingSummary(msg.payload.summary, msg.payload.keyChanges, msg.payload.potentialConcerns);
           break;
         case 'CHUNK':
+          // Legacy single-provider suggestion
           suggestionCount++;
           appendSuggestion(msg.payload);
-          // Show toast for first suggestion to give immediate feedback
           if (suggestionCount === 1) {
             showToast('Found first suggestion, analyzing more...');
           }
+          break;
+        case 'CONSENSUS_CHUNK':
+          // Consensus suggestion from multiple providers
+          suggestionCount++;
+          appendSuggestion(msg.payload);
+          if (suggestionCount === 1) {
+            showToast('Found first suggestion, analyzing more...');
+          }
+          break;
+        case 'CHUNK_UPDATE':
+          // Update existing suggestion with new confidence/providers
+          updateSuggestion(msg.payload.id, msg.payload.suggestion);
+          break;
+        case 'PROVIDER_STARTED':
+          providerStarted(msg.payload.provider);
+          break;
+        case 'PROVIDER_COMPLETED':
+          providerCompleted(msg.payload.provider, msg.payload.count);
+          break;
+        case 'PROVIDER_ERROR':
+          providerError(msg.payload.provider, msg.payload.error);
           break;
         case 'END':
           isReviewing = false;
@@ -344,7 +368,6 @@ function handleReviewResponse(response: BackgroundMessage): void {
   isReviewing = false;
 
   if (response.type === 'REVIEW_RESULT') {
-    lastReviewResponse = response.payload;
     updateReviewButtonState('idle');
 
     // Render suggestions
@@ -435,7 +458,6 @@ function handleNavigation(): void {
   }
   isReviewing = false;
   isGeneratingDescription = false;
-  lastReviewResponse = null;
   currentDiff = null;
   clearSuggestionOverlays();
 

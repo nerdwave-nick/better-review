@@ -63,6 +63,9 @@ export interface ReviewResponse {
   reviewedAt: string;
 }
 
+// Supported AI providers
+export type ProviderName = 'gemini' | 'claude';
+
 // Extension settings
 export interface ExtensionSettings {
   strictnessLevel: 'thorough' | 'balanced' | 'quick';
@@ -71,7 +74,21 @@ export interface ExtensionSettings {
   autoFinalizeReview: boolean; // If true, submit review immediately; if false, keep as draft
   githubToken?: string; // For private repos
   geminiApiKey?: string; // For Gemini AI reviews
+  claudeApiKey?: string; // For Claude AI reviews
+  enabledProviders: ProviderName[]; // Which providers to use (default: ['gemini'])
+  // Context settings
+  includeRepoSummary: boolean; // Include README/package.json context
+  includeRelatedFiles: boolean; // Include imported/related files
+  skipDiscussedIssues: boolean; // Skip issues already mentioned in comments
   darkMode: 'auto' | 'light' | 'dark';
+}
+
+// Consensus suggestion with confidence scoring
+export interface ConsensusSuggestion extends ReviewSuggestion {
+  confidence: number; // 0.0-1.0
+  confidenceLevel: 'high' | 'medium' | 'low';
+  contributingProviders: ProviderName[];
+  providerCount: number;
 }
 
 // Connection status

@@ -1,4 +1,4 @@
-import type { ReviewSuggestion, SuggestionPriority, ExtensionSettings, PRDiff } from '../shared/types';
+import type { ReviewSuggestion, SuggestionPriority, ExtensionSettings, PRDiff, ConsensusSuggestion, ProviderName } from '../shared/types';
 import { fetchPRContext, postLineComment, postMultiLineComment, formatSuggestionComment, submitReview, type PRContext } from './github-api';
 import { sendToBackground } from '../shared/messages';
 
@@ -8,14 +8,28 @@ const PRIORITY_ICONS: Record<SuggestionPriority, string> = {
   low: '\u{1F7E2}',
 };
 
+const CONFIDENCE_COLORS: Record<'high' | 'medium' | 'low', string> = {
+  high: '#10b981',   // Green
+  medium: '#f59e0b', // Yellow/amber
+  low: '#9ca3af',    // Gray
+};
+
+const PROVIDER_LABELS: Record<ProviderName, string> = {
+  gemini: 'Gemini',
+  claude: 'Claude',
+};
+
 // Consolidated UI state
 interface UIState {
-  suggestions: ReviewSuggestion[];
+  suggestions: (ReviewSuggestion | ConsensusSuggestion)[];
   currentIndex: number;
   prContext: PRContext | null;
   pendingCount: number;
   diff: PRDiff | null;
   mode: 'idle' | 'streaming' | 'editing';
+  activeProviders: Set<ProviderName>;
+  providerErrors: Map<ProviderName, string>;
+  isFinalized: boolean;
 }
 
 const state: UIState = {
@@ -25,6 +39,9 @@ const state: UIState = {
   pendingCount: 0,
   diff: null,
   mode: 'idle',
+  activeProviders: new Set(),
+  providerErrors: new Map(),
+  isFinalized: false,
 };
 
 // Helper functions
@@ -142,96 +159,68 @@ export function clearSuggestionOverlays(): void {
   document.querySelectorAll('.pr-ai-suggestion-container, .pr-ai-suggestion-nav, .pr-ai-suggestions-panel').forEach(el => el.remove());
 }
 
-export function renderReviewSummary(summary: string, _assessment: string, suggestionCount: number): void {
-  if (suggestionCount === 0) showToast('\u{2705} ' + summary);
+export function renderReviewSummary(_summary: string, _assessment: string, _suggestionCount: number): void {
+  // Summary display disabled per user request
+  // if (suggestionCount === 0) showToast('\u{2705} ' + summary);
 }
 
-export function showStreamingSummary(summary: string, keyChanges: string[], potentialConcerns?: string[]): void {
-  const container = document.querySelector('.pr-ai-suggestion-container');
-  if (!container) return;
-
-  // Remove any existing streaming summary
-  container.querySelector('.pr-ai-streaming-summary')?.remove();
-
-  const summaryEl = document.createElement('div');
-  summaryEl.className = 'pr-ai-streaming-summary';
-  summaryEl.innerHTML = `
-    <div class="pr-ai-streaming-summary__header">
-      <span class="pr-ai-streaming-summary__icon">\u{1F4DD}</span>
-      <span class="pr-ai-streaming-summary__title">PR Summary</span>
-    </div>
-    <div class="pr-ai-streaming-summary__content">
-      <div class="pr-ai-streaming-summary__text">${escapeHtml(summary)}</div>
-      ${keyChanges.length > 0 ? `
-        <div class="pr-ai-streaming-summary__changes">
-          <strong>Key changes:</strong>
-          <ul>${keyChanges.map(c => `<li>${escapeHtml(c)}</li>`).join('')}</ul>
-        </div>
-      ` : ''}
-      ${potentialConcerns && potentialConcerns.length > 0 ? `
-        <div class="pr-ai-streaming-summary__concerns">
-          <strong>\u{26A0}\uFE0F Areas to watch:</strong>
-          <ul>${potentialConcerns.map(c => `<li>${escapeHtml(c)}</li>`).join('')}</ul>
-        </div>
-      ` : ''}
-    </div>
-  `;
-
-  // Insert after the nav but before the preview
-  const nav = container.querySelector('.pr-ai-suggestion-nav');
-  if (nav) {
-    nav.after(summaryEl);
-  }
-}
-
-function collapseStreamingSummary(): void {
-  const summaryEl = document.querySelector('.pr-ai-streaming-summary');
-  if (!summaryEl) return;
-
-  // Add collapsed class for animation
-  summaryEl.classList.add('pr-ai-streaming-summary--collapsed');
-
-  // Update the header to show it's complete
-  const header = summaryEl.querySelector('.pr-ai-streaming-summary__header');
-  if (header) {
-    header.innerHTML = `
-      <span class="pr-ai-streaming-summary__icon">\u{2705}</span>
-      <span class="pr-ai-streaming-summary__title">Summary</span>
-      <button class="pr-ai-streaming-summary__toggle" title="Expand summary">\u{25BC}</button>
-    `;
-
-    // Add toggle functionality
-    const toggleBtn = header.querySelector('.pr-ai-streaming-summary__toggle') as HTMLButtonElement | null;
-    toggleBtn?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      summaryEl.classList.toggle('pr-ai-streaming-summary--collapsed');
-      if (toggleBtn) {
-        toggleBtn.textContent = summaryEl.classList.contains('pr-ai-streaming-summary--collapsed') ? '\u{25BC}' : '\u{25B2}';
-        toggleBtn.title = summaryEl.classList.contains('pr-ai-streaming-summary--collapsed') ? 'Expand summary' : 'Collapse summary';
-      }
-    });
-  }
+export function showStreamingSummary(_summary: string, _keyChanges: string[], _potentialConcerns?: string[]): void {
+  // Streaming summary display disabled per user request
 }
 
 export function initializeSuggestions(diff: PRDiff | null, streaming = false): void {
   clearSuggestionOverlays();
-  Object.assign(state, { diff, mode: streaming ? 'streaming' : 'idle', suggestions: [], currentIndex: 0, pendingCount: 0 });
+  Object.assign(state, {
+    diff,
+    mode: streaming ? 'streaming' : 'idle',
+    suggestions: [],
+    currentIndex: 0,
+    pendingCount: 0,
+    activeProviders: new Set(),
+    providerErrors: new Map(),
+    isFinalized: false,
+  });
   createUI();
   updateDisplay();
 }
 
-export function appendSuggestion(suggestion: ReviewSuggestion): void {
+export function appendSuggestion(suggestion: ReviewSuggestion | ConsensusSuggestion): void {
   state.suggestions.push(suggestion);
-  if (state.suggestions.length === 1) {
-    // Collapse the streaming summary when first suggestion arrives
-    collapseStreamingSummary();
-    updateDisplay();
-  }
+  updateDisplay(); // Always update display to show counter
   updateCountDisplay();
+}
+
+export function updateSuggestion(id: string, suggestion: ConsensusSuggestion): void {
+  const index = state.suggestions.findIndex(s => s.id === id);
+  if (index !== -1) {
+    state.suggestions[index] = suggestion;
+    // If we're currently viewing this suggestion, refresh the display
+    if (index === state.currentIndex) {
+      updateDisplay();
+    }
+    updateCountDisplay();
+  }
+}
+
+export function providerStarted(provider: ProviderName): void {
+  state.activeProviders.add(provider);
+  updateProviderStatusDisplay();
+}
+
+export function providerCompleted(provider: ProviderName, _count: number): void {
+  state.activeProviders.delete(provider);
+  updateProviderStatusDisplay();
+}
+
+export function providerError(provider: ProviderName, error: string): void {
+  state.activeProviders.delete(provider);
+  state.providerErrors.set(provider, error);
+  updateProviderStatusDisplay();
 }
 
 export function finalizeSuggestions(): void {
   state.mode = 'idle';
+  state.isFinalized = true;
   updateDisplay();
   updateStreamingIndicator();
 }
@@ -241,6 +230,32 @@ export function renderSuggestions(suggestions: ReviewSuggestion[], diff: PRDiff 
   state.suggestions = suggestions;
   if (suggestions.length === 0) showToast('No suggestions - code looks good!');
   updateDisplay();
+}
+
+function isConsensusSuggestion(suggestion: ReviewSuggestion | ConsensusSuggestion): suggestion is ConsensusSuggestion {
+  return 'confidence' in suggestion && 'contributingProviders' in suggestion;
+}
+
+function updateProviderStatusDisplay(): void {
+  const statusEl = document.querySelector('.pr-ai-provider-status') as HTMLElement;
+  if (!statusEl) return;
+
+  if (state.activeProviders.size === 0 && state.providerErrors.size === 0) {
+    statusEl.style.display = 'none';
+    return;
+  }
+
+  statusEl.style.display = 'inline-flex';
+
+  const parts: string[] = [];
+  for (const provider of state.activeProviders) {
+    parts.push(`<span class="pr-ai-provider-active">${PROVIDER_LABELS[provider]}</span>`);
+  }
+  for (const [provider, error] of state.providerErrors) {
+    parts.push(`<span class="pr-ai-provider-error" title="${escapeHtml(error)}">${PROVIDER_LABELS[provider]} \u2717</span>`);
+  }
+
+  statusEl.innerHTML = parts.join(' ');
 }
 
 function createUI(): void {
@@ -255,6 +270,7 @@ function createUI(): void {
             <svg class="pr-ai-spinner" viewBox="0 0 16 16" width="12" height="12" style="vertical-align:middle;margin-right:4px"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="2" fill="none" stroke-dasharray="30" stroke-linecap="round"/></svg>
             <span>analyzing...</span>
           </span>
+          <span class="pr-ai-provider-status" style="display:none;margin-left:8px;gap:6px;font-size:11px"></span>
           <span class="pr-ai-suggestion-nav__pending" style="display:none;margin-left:8px;color:#f0883e">(<strong>0</strong> pending)</span>
         </div>
         <div class="pr-ai-suggestion-nav__controls">
@@ -272,6 +288,8 @@ function createUI(): void {
         <span class="pr-ai-preview__line"></span>
         <span class="pr-ai-preview__priority"></span>
         <span class="pr-ai-preview__category"></span>
+        <span class="pr-ai-preview__confidence"></span>
+        <span class="pr-ai-preview__providers"></span>
       </div>
       <div class="pr-ai-preview__field">
         <textarea class="pr-ai-preview__textarea pr-ai-preview__description" rows="4" placeholder="Review comment..."></textarea>
@@ -309,14 +327,28 @@ function updateDisplay(): void {
 
   updateStreamingIndicator();
 
+  if (state.mode === 'streaming' && !state.isFinalized) {
+    // Show processing state with counter
+    loadingEl.style.display = 'block';
+    actionsEl.style.display = 'none';
+    fields.forEach(el => el.style.display = 'none');
+    
+    const count = state.suggestions.length;
+    loadingEl.innerHTML = `
+      <svg class="pr-ai-spinner" viewBox="0 0 16 16" width="24" height="24" style="margin-bottom:8px">
+        <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="2" fill="none" stroke-dasharray="30" stroke-linecap="round"/>
+      </svg>
+      <div style="font-weight:600;margin-bottom:4px">Analyzing changes...</div>
+      <div style="font-size:12px;opacity:0.8">Found ${count} potential issue${count !== 1 ? 's' : ''} so far</div>
+    `;
+    positionEl.textContent = '-/-';
+    return;
+  }
+
   if (state.suggestions.length === 0) {
     if (state.mode === 'streaming') {
+      // Should be handled by block above, but fallback just in case
       loadingEl.style.display = 'block';
-      actionsEl.style.display = 'none';
-      fields.forEach(el => el.style.display = 'none');
-      positionEl.textContent = '-/-';
-    } else {
-      loadingEl.style.display = 'none';
       fields.forEach(el => el.style.display = 'none');
       positionEl.textContent = '0/0';
 
@@ -351,6 +383,23 @@ function updateDisplay(): void {
 
   (preview.querySelector('.pr-ai-preview__category') as HTMLElement).textContent = s.category.replace('_', ' ');
   (preview.querySelector('.pr-ai-preview__description') as HTMLTextAreaElement).value = s.description;
+
+  // Update confidence badge and providers if this is a consensus suggestion
+  const confidenceEl = preview.querySelector('.pr-ai-preview__confidence') as HTMLElement;
+  const providersEl = preview.querySelector('.pr-ai-preview__providers') as HTMLElement;
+
+  if (isConsensusSuggestion(s)) {
+    const confidenceColor = CONFIDENCE_COLORS[s.confidenceLevel];
+    confidenceEl.innerHTML = `<span style="background:${confidenceColor}20;color:${confidenceColor};padding:2px 8px;border-radius:4px;font-size:11px;font-weight:500" title="Confidence: ${Math.round(s.confidence * 100)}%">${s.confidenceLevel}</span>`;
+    confidenceEl.style.display = 'inline';
+
+    const providerLabels = s.contributingProviders.map(p => PROVIDER_LABELS[p]).join(' + ');
+    providersEl.innerHTML = `<span style="color:var(--pr-ai-text-secondary);font-size:11px" title="Contributing providers">${providerLabels}</span>`;
+    providersEl.style.display = 'inline';
+  } else {
+    confidenceEl.style.display = 'none';
+    providersEl.style.display = 'none';
+  }
 
   // Update code diff/editor
   const diffContainer = preview.querySelector('.pr-ai-preview__diff-container') as HTMLElement;

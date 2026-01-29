@@ -8,13 +8,24 @@ const elements = {
   connectionStatus: document.getElementById('connection-status')!,
   statusDot: document.querySelector('.status__dot')!,
   statusText: document.querySelector('.status__text')!,
+  // Provider toggles
+  providerGemini: document.getElementById('provider-gemini') as HTMLInputElement,
+  providerClaude: document.getElementById('provider-claude') as HTMLInputElement,
+  // API keys
   geminiApiKey: document.getElementById('gemini-api-key') as HTMLInputElement,
   toggleGeminiKey: document.getElementById('toggle-gemini-key')!,
+  claudeApiKey: document.getElementById('claude-api-key') as HTMLInputElement,
+  toggleClaudeKey: document.getElementById('toggle-claude-key')!,
+  // Settings
   strictness: document.getElementById('strictness') as HTMLSelectElement,
   focusAll: document.getElementById('focus-all') as HTMLInputElement,
   focusSecurity: document.getElementById('focus-security') as HTMLInputElement,
   focusPerformance: document.getElementById('focus-performance') as HTMLInputElement,
   focusStyle: document.getElementById('focus-style') as HTMLInputElement,
+  // Context settings
+  contextRepoSummary: document.getElementById('context-repo-summary') as HTMLInputElement,
+  contextRelatedFiles: document.getElementById('context-related-files') as HTMLInputElement,
+  contextDeduplicate: document.getElementById('context-deduplicate') as HTMLInputElement,
   autoReview: document.getElementById('auto-review') as HTMLInputElement,
   autoFinalize: document.getElementById('auto-finalize') as HTMLInputElement,
   githubToken: document.getElementById('github-token') as HTMLInputElement,
@@ -29,6 +40,7 @@ const elements = {
 let currentSettings: ExtensionSettings = DEFAULT_SETTINGS;
 let tokenVisible = false;
 let geminiKeyVisible = false;
+let claudeKeyVisible = false;
 
 /**
  * Initialize popup
@@ -58,9 +70,19 @@ async function loadSettings(): Promise<void> {
  * Populate form with current settings
  */
 function populateForm(): void {
+  // Provider toggles
+  const enabledProviders = currentSettings.enabledProviders || ['gemini'];
+  elements.providerGemini.checked = enabledProviders.includes('gemini');
+  elements.providerClaude.checked = enabledProviders.includes('claude');
+
   // Gemini API key
   if (currentSettings.geminiApiKey) {
     elements.geminiApiKey.value = currentSettings.geminiApiKey;
+  }
+
+  // Claude API key
+  if (currentSettings.claudeApiKey) {
+    elements.claudeApiKey.value = currentSettings.claudeApiKey;
   }
 
   // Strictness
@@ -75,6 +97,11 @@ function populateForm(): void {
 
   // Toggle "all" behavior
   updateFocusCheckboxes();
+
+  // Context settings
+  elements.contextRepoSummary.checked = currentSettings.includeRepoSummary;
+  elements.contextRelatedFiles.checked = currentSettings.includeRelatedFiles;
+  elements.contextDeduplicate.checked = currentSettings.skipDiscussedIssues;
 
   // Auto review
   elements.autoReview.checked = currentSettings.autoReviewOnLoad;
@@ -128,6 +155,13 @@ function setupEventListeners(): void {
     updateGeminiEyeIcon();
   });
 
+  // Claude API key visibility toggle
+  elements.toggleClaudeKey.addEventListener('click', () => {
+    claudeKeyVisible = !claudeKeyVisible;
+    elements.claudeApiKey.type = claudeKeyVisible ? 'text' : 'password';
+    updateClaudeEyeIcon();
+  });
+
   // Token visibility toggle
   elements.toggleToken.addEventListener('click', () => {
     tokenVisible = !tokenVisible;
@@ -178,6 +212,13 @@ function updateEyeIconState(elementId: string, isVisible: boolean): void {
  */
 function updateGeminiEyeIcon(): void {
   updateEyeIconState('gemini-eye-icon', geminiKeyVisible);
+}
+
+/**
+ * Updates eye icon for Claude API key visibility
+ */
+function updateClaudeEyeIcon(): void {
+  updateEyeIconState('claude-eye-icon', claudeKeyVisible);
 }
 
 /**
@@ -271,10 +312,23 @@ function collectFormValues(): Partial<ExtensionSettings> {
     if (elements.focusStyle.checked) focusAreas.push('style');
   }
 
+  // Collect enabled providers
+  const enabledProviders: ExtensionSettings['enabledProviders'] = [];
+  if (elements.providerGemini.checked) enabledProviders.push('gemini');
+  if (elements.providerClaude.checked) enabledProviders.push('claude');
+  // Default to gemini if none selected
+  if (enabledProviders.length === 0) enabledProviders.push('gemini');
+
   return {
     geminiApiKey: elements.geminiApiKey.value.trim() || undefined,
+    claudeApiKey: elements.claudeApiKey.value.trim() || undefined,
+    enabledProviders,
     strictnessLevel: elements.strictness.value as ExtensionSettings['strictnessLevel'],
     focusAreas,
+    // Context settings
+    includeRepoSummary: elements.contextRepoSummary.checked,
+    includeRelatedFiles: elements.contextRelatedFiles.checked,
+    skipDiscussedIssues: elements.contextDeduplicate.checked,
     autoReviewOnLoad: elements.autoReview.checked,
     autoFinalizeReview: elements.autoFinalize.checked,
     githubToken: elements.githubToken.value.trim() || undefined,

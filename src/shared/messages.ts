@@ -1,10 +1,15 @@
-import type { PRDiff, ReviewResponse, ExtensionSettings, ConnectionStatus, ReviewSuggestion } from './types';
+import type { PRDiff, ReviewResponse, ExtensionSettings, ConnectionStatus, ReviewSuggestion, ProviderName, ConsensusSuggestion } from './types';
 
 // Port message types for streaming communication
 export type StreamPortMessage =
   | { type: 'START'; payload: PRDiff }
   | { type: 'SUMMARY'; payload: { summary: string; keyChanges: string[]; potentialConcerns?: string[] } }
   | { type: 'CHUNK'; payload: ReviewSuggestion }
+  | { type: 'CONSENSUS_CHUNK'; payload: ConsensusSuggestion }
+  | { type: 'CHUNK_UPDATE'; payload: { id: string; suggestion: ConsensusSuggestion } }
+  | { type: 'PROVIDER_STARTED'; payload: { provider: ProviderName } }
+  | { type: 'PROVIDER_COMPLETED'; payload: { provider: ProviderName; count: number } }
+  | { type: 'PROVIDER_ERROR'; payload: { provider: ProviderName; error: string } }
   | { type: 'END'; payload: { summary: string; overallAssessment: string } }
   | { type: 'ERROR'; payload: { error: string } };
 
@@ -112,5 +117,10 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   focusAreas: ['all'],
   autoReviewOnLoad: false,
   autoFinalizeReview: false, // Default to draft mode
+  enabledProviders: ['gemini'], // Default to Gemini only
+  // Context settings - all enabled by default
+  includeRepoSummary: true,
+  includeRelatedFiles: true,
+  skipDiscussedIssues: true,
   darkMode: 'auto',
 };

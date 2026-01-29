@@ -19,9 +19,9 @@ export const TIMEOUTS = {
 
 // Gemini AI configuration
 export const GEMINI_CONFIG = {
-  MODEL: 'gemini-3-flash-preview',
+  MODEL: 'gemini-3-pro-preview',
   TEMPERATURE: 0.3,
-  MAX_OUTPUT_TOKENS: 60000,    // High limit to allow many suggestions
+  MAX_OUTPUT_TOKENS: 8192,    // Reduced for speed (was 60000)
   // Limits for faster processing
   MAX_DIFF_LINES_PER_FILE: 500,
   MAX_TOTAL_DIFF_CHARS: 50000,
