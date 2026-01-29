@@ -69,6 +69,9 @@ const commonOptions = {
   target: ['chrome100'],
   minify: !isWatch,
   plugins: [vuePlugin()],
+  loader: {
+    '.svg': 'text',
+  },
   define: {
     'process.env.NODE_ENV': isWatch ? '"development"' : '"production"',
     '__VUE_OPTIONS_API__': 'true',
