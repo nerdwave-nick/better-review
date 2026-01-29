@@ -7,9 +7,8 @@
 
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { streamText, generateText } from 'ai';
-import type { PRDiff, ExtensionSettings, FileDiff } from '../../shared/types';
+import type { PRDiff, ExtensionSettings, FileDiff, ChangesSummaryResponse } from '../../shared/types';
 import type { AIProvider, ProviderSuggestion } from './types';
-import type { ChangesSummaryResponse } from '../gemini-service';
 import type { RepoContext } from '../context/types';
 import { formatContextForPrompt } from '../context';
 import { GEMINI_CONFIG, LOG_TAGS, IGNORE_PATTERNS } from '../../shared/constants';

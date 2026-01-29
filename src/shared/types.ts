@@ -97,3 +97,10 @@ export interface ConnectionStatus {
   lastPing?: number;
   error?: string;
 }
+
+// AI-generated changes summary
+export interface ChangesSummaryResponse {
+  summary: string;
+  keyChanges: string[];
+  potentialConcerns?: string[];
+}

@@ -5,9 +5,8 @@
  * results through the consensus engine.
  */
 
-import type { PRDiff, ExtensionSettings } from '../shared/types';
+import type { PRDiff, ExtensionSettings, ChangesSummaryResponse } from '../shared/types';
 import type { AIProvider, ProviderName, ProviderSuggestion, ConsensusSuggestion } from './providers/types';
-import type { ChangesSummaryResponse } from './gemini-service';
 import type { RepoContext } from './context/types';
 import { fetchRepoContext } from './context';
 import { isDuplicateComment } from './context/comments';

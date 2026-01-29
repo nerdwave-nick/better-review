@@ -5,9 +5,8 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
-import type { PRDiff, ExtensionSettings, FileDiff } from '../../shared/types';
+import type { PRDiff, ExtensionSettings, FileDiff, ChangesSummaryResponse } from '../../shared/types';
 import type { AIProvider, ProviderSuggestion } from './types';
-import type { ChangesSummaryResponse } from '../gemini-service';
 import type { RepoContext } from '../context/types';
 import { formatContextForPrompt } from '../context';
 import { GEMINI_CONFIG, IGNORE_PATTERNS } from '../../shared/constants';
@@ -464,7 +463,7 @@ export class ClaudeProvider implements AIProvider {
     try {
       logger.debug(TAG, 'Starting streaming API request');
 
-      const stream = await client.messages.stream({
+      const stream = client.messages.stream({
         model: CLAUDE_CONFIG.MODEL,
         max_tokens: CLAUDE_CONFIG.MAX_TOKENS,
         system: 'You are a senior developer doing a code review. Write descriptions in a natural, conversational tone. No greetings, no "Hey", no "Hi" - just get straight to the point. Avoid formal headers or bullet points. Be helpful and specific. Output valid JSON only, no markdown code blocks. Start outputting suggestions immediately.',
@@ -497,7 +496,68 @@ export class ClaudeProvider implements AIProvider {
       }
     }
   }
+
+  async generatePRDescription(
+    diffText: string,
+    template: string,
+    apiKey: string
+  ): Promise<string> {
+    const client = getClient(apiKey);
+
+    const systemPrompt = `You are a senior developer writing a PR description. Your task is to fill in a PR template based on the code changes provided.
+
+Guidelines:
+- Be concise and informative
+- Focus on WHAT changed and WHY
+- Use bullet points for lists
+- Keep technical but accessible
+- Fill in all template sections appropriately
+- If a section doesn't apply, write "N/A" or remove it`;
+
+    const userPrompt = `Here is the PR template to fill in:
+
+${template || `## Summary
+<!-- Briefly describe what this PR does -->
+
+## Changes
+<!-- List the main changes -->
+
+## Testing
+<!-- How was this tested? -->
+`}
+
+Here is the diff of the changes:
+
+\`\`\`diff
+${diffText.substring(0, 50000)}
+\`\`\`
+
+Please fill in the template based on the code changes. Output ONLY the filled template, no additional commentary.`;
+
+    logger.debug(TAG, 'Generating PR description');
+
+    const response = await client.messages.create({
+      model: CLAUDE_CONFIG.MODEL,
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userPrompt }],
+    });
+
+    const responseText = response.content[0].type === 'text' ? response.content[0].text : '';
+    if (!responseText) throw new Error('Empty response from Claude');
+
+    return responseText.trim();
+  }
 }
 
 // Export singleton instance
 export const claudeProvider = new ClaudeProvider();
+
+// Standalone function for generating PR descriptions
+export async function generatePRDescription(
+  diffText: string,
+  template: string,
+  apiKey: string
+): Promise<string> {
+  return claudeProvider.generatePRDescription(diffText, template, apiKey);
+}

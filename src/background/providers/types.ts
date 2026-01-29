@@ -2,8 +2,7 @@
  * Provider Types - Shared interfaces for AI providers
  */
 
-import type { ReviewSuggestion, PRDiff, ExtensionSettings } from '../../shared/types';
-import type { ChangesSummaryResponse } from '../gemini-service';
+import type { ReviewSuggestion, PRDiff, ExtensionSettings, ChangesSummaryResponse } from '../../shared/types';
 import type { RepoContext } from '../context/types';
 
 // Supported AI providers

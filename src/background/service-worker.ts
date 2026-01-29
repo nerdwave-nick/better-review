@@ -1,6 +1,6 @@
 import { Octokit } from '@octokit/rest';
-import { requestReview, generatePRDescription } from './gemini-service';
 import { orchestrateReview, hasAvailableProviders } from './orchestrator';
+import { generatePRDescription } from './providers/claude-provider';
 import { DEFAULT_SETTINGS } from '../shared/messages';
 import type { ContentMessage, BackgroundMessage, StreamPortMessage } from '../shared/messages';
 import type { ExtensionSettings, PRDiff } from '../shared/types';
@@ -130,18 +130,6 @@ async function handleReviewRequest(diff: PRDiff, sendResponse: (r: BackgroundMes
   if (!hasAvailableProviders(settings)) {
     return sendResponse({ type: 'REVIEW_ERROR', payload: { error: 'No AI providers configured. Please set up at least one API key in settings.' } });
   }
-
-  try {
-    // For non-streaming requests, use the legacy Gemini path if available
-    if (settings.geminiApiKey) {
-      const response = await requestReview(diff, settings);
-      sendResponse({ type: 'REVIEW_RESULT', payload: response });
-    } else {
-      sendResponse({ type: 'REVIEW_ERROR', payload: { error: 'Non-streaming review requires Gemini API key.' } });
-    }
-  } catch (error) {
-    sendResponse({ type: 'REVIEW_ERROR', payload: { error: error instanceof Error ? error.message : 'Review failed' } });
-  }
 }
 
 // Fetch diff
@@ -246,7 +234,7 @@ async function handleSubmitReview(
     // Delete existing pending reviews first
     const { data: reviews } = await client.pulls.listReviews({ owner, repo, pull_number: prNumber });
     for (const review of reviews.filter(r => r.state === 'PENDING')) {
-      await client.pulls.deletePendingReview({ owner, repo, pull_number: prNumber, review_id: review.id }).catch(() => {});
+      await client.pulls.deletePendingReview({ owner, repo, pull_number: prNumber, review_id: review.id }).catch(() => { });
     }
 
     // Create review with all comments
@@ -277,14 +265,14 @@ async function handleSubmitReview(
 // PR template URL
 const PR_TEMPLATE_URL = 'https://raw.githubusercontent.com/TomesGmbH/.github/main/pull_request_template.md';
 
-// Generate PR description
+// Generate PR description using Claude
 async function handleGeneratePRDescription(
   payload: { owner: string; repo: string; compareSpec: string; template: string },
   sendResponse: (r: BackgroundMessage) => void
 ): Promise<void> {
   const settings = await getSettings();
-  if (!settings.geminiApiKey) {
-    return sendResponse({ type: 'PR_DESCRIPTION_ERROR', payload: { error: 'Please set your Gemini API key in settings.' } });
+  if (!settings.claudeApiKey) {
+    return sendResponse({ type: 'PR_DESCRIPTION_ERROR', payload: { error: 'Please set your Claude API key in settings.' } });
   }
 
   try {
@@ -303,8 +291,8 @@ async function handleGeneratePRDescription(
       template = await templateResponse.text();
     }
 
-    // Generate the description
-    const description = await generatePRDescription(diffText, template, settings.geminiApiKey);
+    // Generate the description using Claude
+    const description = await generatePRDescription(diffText, template, settings.claudeApiKey);
     sendResponse({ type: 'PR_DESCRIPTION_RESULT', payload: { description } });
   } catch (error) {
     sendResponse({ type: 'PR_DESCRIPTION_ERROR', payload: { error: error instanceof Error ? error.message : 'Failed to generate PR description' } });
