@@ -117,6 +117,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   focusAreas: ['all'],
   autoReviewOnLoad: false,
   autoFinalizeReview: false, // Default to draft mode
+  autoComment: false, // Default to manual comment submission
   enabledProviders: ['gemini'], // Default to Gemini only
   // Context settings - all enabled by default
   includeRepoSummary: true,

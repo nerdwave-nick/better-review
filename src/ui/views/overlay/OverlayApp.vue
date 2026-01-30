@@ -200,7 +200,8 @@
           </div>
 
           <!-- Diff Context (PR Changes) -->
-          <div v-if="diffContextLines.length" class="pr-ai-code-section" style="border-radius: 6px; overflow: hidden; margin-bottom: 16px;">
+          <div v-if="diffContextLines.length" class="pr-ai-code-section"
+            style="border-radius: 6px; overflow: hidden; margin-bottom: 16px;">
             <div class="pr-ai-code-toggle" style="cursor: default; border-bottom: 1px solid var(--gh-border-default);">
               <span style="display:flex; align-items:center; gap:8px;">
                 <span v-html="ICONS.DIFF"></span>
@@ -208,14 +209,13 @@
               </span>
             </div>
             <div class="pr-ai-code-comparison">
-              <div v-for="(line, i) in diffContextLines" :key="'ctx-' + i"
-                class="pr-ai-diff-line"
-                :class="{
-                  'pr-ai-diff-line--add': line.type === 'added',
-                  'pr-ai-diff-line--del': line.type === 'removed',
-                  'pr-ai-diff-line--highlight': line.type === 'highlight'
-                }">
-                <div class="pr-ai-diff-line-num">{{ line.type === 'added' ? '+' : line.type === 'removed' ? '-' : line.lineNum }}</div>
+              <div v-for="(line, i) in diffContextLines" :key="'ctx-' + i" class="pr-ai-diff-line" :class="{
+                'pr-ai-diff-line--add': line.type === 'added',
+                'pr-ai-diff-line--del': line.type === 'removed',
+                'pr-ai-diff-line--highlight': line.type === 'highlight'
+              }">
+                <div class="pr-ai-diff-line-num">{{ line.type === 'added' ? '+' : line.type === 'removed' ? '-' :
+                  line.lineNum }}</div>
                 <div class="pr-ai-diff-line-content">{{ line.content }}</div>
               </div>
             </div>
@@ -275,11 +275,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from 'vue';
+import { computed, ref, onMounted, onUnmounted, watch } from 'vue';
 import { store, actions } from './store';
 import { ICONS } from '../../icons';
 import { fetchPRContext, postLineComment, postMultiLineComment, formatSuggestionComment, submitReview } from '../../../content/github-api';
-import { sendToBackground } from '../../../shared/messages';
 import type { ReviewSuggestion, ConsensusSuggestion } from '../../../shared/types';
 
 // State
@@ -573,32 +572,20 @@ async function handleSubmit() {
   isSubmitting.value = true;
   if (!store.prContext) store.prContext = await fetchPRContext();
 
-  // Check settings for autoFinalize
-  let autoFinalize = false;
-  try {
-    const response = await sendToBackground({ type: 'GET_SETTINGS' });
-    if (response.type === 'SETTINGS_RESULT') {
-      // @ts-ignore
-      autoFinalize = response.payload.autoFinalizeReview || false;
-    }
-  } catch { }
-
   const result = await submitReview(
     store.prContext!.owner,
     store.prContext!.repo,
     store.prContext!.prNumber,
-    autoFinalize ? 'COMMENT' : undefined,
+    undefined,
     undefined,
     store.prContext!.headCommitOid
   );
 
   if (result.success) {
-    // showToast('Review submitted!');
     store.pendingCount = 0;
     store.isVisible = false;
     window.location.reload();
   } else {
-    // showToast(`Failed: ${result.error}`, 'error');
     console.error(`Failed: ${result.error}`);
   }
   isSubmitting.value = false;
@@ -694,5 +681,18 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown);
+});
+
+// Watch for auto-comment flag (set when autoComment setting is enabled and review completes)
+watch(() => store.pendingAutoComment, async (shouldAutoComment) => {
+  if (shouldAutoComment && store.suggestions.length > 0) {
+    store.pendingAutoComment = false;
+    // Add all suggestions as draft comments
+    await postAll();
+    // Submit the review (comments remain as drafts)
+    if (store.pendingCount > 0) {
+      await handleSubmit();
+    }
+  }
 });
 </script>

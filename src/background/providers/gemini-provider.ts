@@ -478,7 +478,7 @@ export class GeminiProvider implements AIProvider {
     try {
       logger.debug(TAG, 'Starting streaming API request');
 
-      const result = await streamText({
+      const result = streamText({
         model,
         system: 'You are a senior developer doing a code review. Write descriptions in a natural, conversational tone. No greetings, no "Hey", no "Hi" - just get straight to the point. Avoid formal headers or bullet points. Be helpful and specific. Output valid JSON only. Start outputting suggestions immediately.',
         prompt,

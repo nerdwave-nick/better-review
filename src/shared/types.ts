@@ -72,6 +72,7 @@ export interface ExtensionSettings {
   focusAreas: ('security' | 'performance' | 'style' | 'all')[];
   autoReviewOnLoad: boolean;
   autoFinalizeReview: boolean; // If true, submit review immediately; if false, keep as draft
+  autoComment: boolean; // If true, auto-add all suggestions as draft comments when review completes
   githubToken?: string; // For private repos
   geminiApiKey?: string; // For Gemini AI reviews
   claudeApiKey?: string; // For Claude AI reviews

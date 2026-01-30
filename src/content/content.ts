@@ -2,7 +2,7 @@ import { extractPRMetadata } from './diff-parser';
 import { mountOverlay } from '../ui/views/overlay/mount';
 import { mountDescriptionButton, unmountDescriptionButton } from '../ui/views/mount-button';
 import { store, actions } from '../ui/views/overlay/store';
-import { extractCompareFromUrl } from '../shared/utils';
+import { extractCompareFromUrl, isOnFilesChangedView } from '../shared/utils';
 import { TIMEOUTS, LOG_TAGS } from '../shared/constants';
 import { logger } from '../shared/logger';
 
@@ -25,6 +25,15 @@ async function init(): Promise<void> {
 
     // Show the review button (via Vue store)
     actions.setReviewButtonState('idle');
+
+    // Check if we should auto-start review (from button click redirect)
+    const pendingAutoReview = sessionStorage.getItem('pr-ai-pending-auto-review') === 'true';
+    if (pendingAutoReview && isOnFilesChangedView()) {
+      sessionStorage.removeItem('pr-ai-pending-auto-review');
+      setTimeout(() => {
+        actions.startReview();
+      }, 500);
+    }
   }
 
   // Check for PR description textarea
@@ -109,11 +118,17 @@ function handleNavigation(): void {
   // Unmount description button
   unmountDescriptionButton();
 
-  setTimeout(() => {
+  setTimeout(async () => {
     const metadata = extractPRMetadata();
     if (metadata) {
       actions.setReviewButtonState('idle');
-      // Auto-review logic would go here
+
+      // Check if we should auto-start review (from button click redirect)
+      const pendingAutoReview = sessionStorage.getItem('pr-ai-pending-auto-review') === 'true';
+      if (pendingAutoReview && isOnFilesChangedView()) {
+        sessionStorage.removeItem('pr-ai-pending-auto-review');
+        actions.startReview();
+      }
     }
     initPRDescriptionButton();
   }, TIMEOUTS.NAVIGATION_DEBOUNCE);

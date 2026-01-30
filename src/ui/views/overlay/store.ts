@@ -3,7 +3,7 @@ import type { ReviewSuggestion, ConsensusSuggestion, PRDiff, ProviderName, Exten
 import type { StreamPortMessage } from '../../../shared/messages';
 import { sendToBackground, DEFAULT_SETTINGS } from '../../../shared/messages';
 import { extractPRDiff, extractPRMetadata } from '../../../content/diff-parser';
-import { extractCompareFromUrl } from '../../../shared/utils';
+import { extractCompareFromUrl, isOnFilesChangedView, getFilesChangedUrl } from '../../../shared/utils';
 import { TIMEOUTS, LOG_TAGS } from '../../../shared/constants';
 import { logger } from '../../../shared/logger';
 import { PRContext } from '../../../content/github-api';
@@ -26,6 +26,7 @@ interface OverlayState {
   isReviewButtonVisible: boolean;
   reviewButtonState: 'idle' | 'loading' | 'error';
   descriptionButtonState: 'idle' | 'loading' | 'error';
+  pendingAutoComment: boolean; // Flag to auto-add comments after review completes
 }
 
 export const store = reactive<OverlayState>({
@@ -44,6 +45,7 @@ export const store = reactive<OverlayState>({
   isReviewButtonVisible: false,
   reviewButtonState: 'idle',
   descriptionButtonState: 'idle',
+  pendingAutoComment: false,
 });
 
 // Private state not exposed to Vue
@@ -112,9 +114,22 @@ export const actions = {
         currentPort = null;
       }
       store.reviewButtonState = 'idle';
-      // this.showToast('Review cancelled');
       return;
     }
+
+    // Check if we're on the files changed view, redirect if not
+    if (!isOnFilesChangedView()) {
+      const filesUrl = getFilesChangedUrl();
+      if (filesUrl) {
+        // Set flag to auto-start review after navigation
+        sessionStorage.setItem('pr-ai-pending-auto-review', 'true');
+        window.location.href = filesUrl;
+        return;
+      }
+    }
+
+    // Clear any pending flag since we're starting the review
+    sessionStorage.removeItem('pr-ai-pending-auto-review');
 
     // Start new review
     store.reviewButtonState = 'loading';
@@ -183,8 +198,12 @@ export const actions = {
             store.reviewButtonState = 'idle';
             store.mode = 'idle';
             store.isFinalized = true;
-            // this.showToast(`Review complete! ${suggestionCount} suggestion${suggestionCount !== 1 ? 's' : ''} found.`);
             currentPort = null;
+
+            // If auto-comment is enabled and we have suggestions, trigger auto-comment
+            if (currentSettings.autoComment && suggestionCount > 0) {
+              store.pendingAutoComment = true;
+            }
             break;
           case 'ERROR':
             store.reviewButtonState = 'error';

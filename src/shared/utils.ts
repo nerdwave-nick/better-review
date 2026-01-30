@@ -43,3 +43,19 @@ export function extractCompareFromUrl(): CompareIdentifier | null {
     compareSpec: match[3],
   };
 }
+
+/**
+ * Check if we're on the PR files changed view (/files or /changes)
+ */
+export function isOnFilesChangedView(): boolean {
+  return /\/pull\/\d+\/(files|changes)/.test(window.location.pathname);
+}
+
+/**
+ * Get the files changed URL for the current PR
+ */
+export function getFilesChangedUrl(): string | null {
+  const prInfo = extractPRFromUrl();
+  if (!prInfo) return null;
+  return `/${prInfo.owner}/${prInfo.repo}/pull/${prInfo.prNumber}/changes`;
+}

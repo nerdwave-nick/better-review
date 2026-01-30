@@ -81,31 +81,6 @@
         </div>
 
         <div class="form-group">
-          <label class="label">Focus Areas</label>
-          <div class="checkbox-group">
-            <label class="checkbox">
-              <input type="checkbox" :checked="isFocusAll" @change="setFocusAll">
-              <span class="checkbox__label">All Areas</span>
-            </label>
-            <label class="checkbox">
-              <input type="checkbox" value="security" :checked="settings.focusAreas.includes('security')"
-                @change="toggleFocusArea('security')" :disabled="isFocusAll">
-              <span class="checkbox__label">Security</span>
-            </label>
-            <label class="checkbox">
-              <input type="checkbox" value="performance" :checked="settings.focusAreas.includes('performance')"
-                @change="toggleFocusArea('performance')" :disabled="isFocusAll">
-              <span class="checkbox__label">Performance</span>
-            </label>
-            <label class="checkbox">
-              <input type="checkbox" value="style" :checked="settings.focusAreas.includes('style')"
-                @change="toggleFocusArea('style')" :disabled="isFocusAll">
-              <span class="checkbox__label">Code Style</span>
-            </label>
-          </div>
-        </div>
-
-        <div class="form-group">
           <label class="label">Context Settings</label>
           <div class="checkbox-group" style="display: flex; flex-direction: column; gap: 8px;">
             <label class="checkbox">
@@ -125,20 +100,12 @@
 
         <div class="form-group">
           <label class="toggle">
-            <input type="checkbox" v-model="settings.autoReviewOnLoad">
+            <input type="checkbox" v-model="settings.autoComment">
             <span class="toggle__slider"></span>
-            <span class="toggle__label">Auto-review on PR load</span>
-          </label>
-        </div>
-
-        <div class="form-group">
-          <label class="toggle">
-            <input type="checkbox" v-model="settings.autoFinalizeReview">
-            <span class="toggle__slider"></span>
-            <span class="toggle__label">Auto-finalize reviews (submit immediately)</span>
+            <span class="toggle__label">Auto-comment after review</span>
           </label>
           <p class="section__description" style="margin-top: 4px; font-size: 11px;">
-            When disabled, reviews are saved as drafts for you to submit manually from GitHub.
+            Automatically add all suggestions as draft comments when review completes.
           </p>
         </div>
       </section>
@@ -223,43 +190,10 @@ const isValidating = ref(false);
 const tokenStatus = reactive({ type: 'valid' as 'valid' | 'invalid' | 'checking', message: '' });
 
 // --- Computed ---
-const isFocusAll = computed(() => settings.value.focusAreas.includes('all'));
 const connectionStatusClass = computed(() => `status--${connectionStatus.value}`);
 const isDarkTheme = computed(() => settings.value.darkMode === 'dark'); // Simple check, real theme logic handled by CSS/browser
 
 // --- Methods ---
-
-function setFocusAll(e: Event) {
-  const checked = (e.target as HTMLInputElement).checked;
-  if (checked) {
-    settings.value.focusAreas = ['all'];
-  } else {
-    // If unchecked, default to security (prevent empty) or just empty?
-    // Logic from original: if all unchecked, default to all.
-    // If user unchecks 'all', let's default to 'security' so it's not empty
-    settings.value.focusAreas = ['security'];
-  }
-}
-
-function toggleFocusArea(area: 'security' | 'performance' | 'style') {
-  const index = settings.value.focusAreas.indexOf(area);
-  if (index === -1) {
-    settings.value.focusAreas.push(area);
-  } else {
-    settings.value.focusAreas.splice(index, 1);
-  }
-
-  // Remove 'all' if specific areas are selected
-  const allIndex = settings.value.focusAreas.indexOf('all');
-  if (allIndex !== -1) {
-    settings.value.focusAreas.splice(allIndex, 1);
-  }
-
-  // If nothing selected, default back to all
-  if (settings.value.focusAreas.length === 0) {
-    settings.value.focusAreas = ['all'];
-  }
-}
 
 function toggleProvider(provider: ProviderName) {
   const index = settings.value.enabledProviders.indexOf(provider);
@@ -279,7 +213,7 @@ async function loadSettings() {
   try {
     const response = await sendToBackground({ type: 'GET_SETTINGS' });
     if (response.type === 'SETTINGS_RESULT') {
-      settings.value = { ...DEFAULT_SETTINGS, ...response.payload };
+      settings.value = { ...DEFAULT_SETTINGS, ...response.payload, focusAreas: ['all'] };
     }
   } catch (error) {
     console.error('Failed to load settings:', error);
