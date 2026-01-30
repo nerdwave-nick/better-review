@@ -39,7 +39,8 @@ export type SubmitReviewPayload = {
 export type GeneratePRDescriptionPayload = {
   owner: string;
   repo: string;
-  compareSpec: string;
+  compareSpec?: string;
+  prNumber?: number;
   template: string;
 };
 

@@ -504,15 +504,13 @@ export class ClaudeProvider implements AIProvider {
   ): Promise<string> {
     const client = getClient(apiKey);
 
-    const systemPrompt = `You are a senior developer writing a PR description. Your task is to fill in a PR template based on the code changes provided.
+    const systemPrompt = `You are a senior developer writing a brief PR description. Fill in the template based on the code changes.
 
 Guidelines:
-- Be concise and informative
-- Focus on WHAT changed and WHY
-- Use bullet points for lists
-- Keep technical but accessible
-- Fill in all template sections appropriately
-- If a section doesn't apply, write "N/A" or remove it`;
+- Be very concise - use short bullet points (5-10 words each)
+- Maximum 2-3 bullets per section
+- Skip sections that don't apply
+- No verbose explanations, just the essentials`;
 
     const userPrompt = `Here is the PR template to fill in:
 

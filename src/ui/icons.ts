@@ -13,6 +13,7 @@ import alertCircle from './assets/icons/alert-circle.svg';
 import info from './assets/icons/info.svg';
 import diff from './assets/icons/diff.svg';
 import expand from './assets/icons/expand.svg';
+import refreshCw from './assets/icons/refresh-cw.svg';
 
 export const ICONS = {
   SPARKLES: sparkles,
@@ -30,4 +31,5 @@ export const ICONS = {
   INFO: info,
   DIFF: diff,
   EXPAND: expand,
+  REFRESH_CW: refreshCw,
 };

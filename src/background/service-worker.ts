@@ -267,7 +267,7 @@ const PR_TEMPLATE_URL = 'https://raw.githubusercontent.com/TomesGmbH/.github/mai
 
 // Generate PR description using Claude
 async function handleGeneratePRDescription(
-  payload: { owner: string; repo: string; compareSpec: string; template: string },
+  payload: { owner: string; repo: string; compareSpec?: string; prNumber?: number; template: string },
   sendResponse: (r: BackgroundMessage) => void
 ): Promise<void> {
   const settings = await getSettings();
@@ -276,20 +276,27 @@ async function handleGeneratePRDescription(
   }
 
   try {
-    // Fetch the diff and template in parallel
-    const [diffResponse, templateResponse] = await Promise.all([
-      fetch(`${GITHUB_WEB_URL}/${payload.owner}/${payload.repo}/compare/${payload.compareSpec}.diff`),
-      fetch(PR_TEMPLATE_URL),
-    ]);
+    // Build the diff URL based on whether we have a PR number or compare spec
+    let diffUrl: string;
+    if (payload.prNumber) {
+      diffUrl = `${GITHUB_WEB_URL}/${payload.owner}/${payload.repo}/pull/${payload.prNumber}.diff`;
+    } else if (payload.compareSpec) {
+      diffUrl = `${GITHUB_WEB_URL}/${payload.owner}/${payload.repo}/compare/${payload.compareSpec}.diff`;
+    } else {
+      return sendResponse({ type: 'PR_DESCRIPTION_ERROR', payload: { error: 'Either prNumber or compareSpec is required' } });
+    }
+
+    // Fetch the diff
+    const diffResponse = await fetch(diffUrl);
 
     if (!diffResponse.ok) throw new Error(`Failed to fetch diff: ${diffResponse.status}`);
     const diffText = await diffResponse.text();
 
-    // Use fetched template, fallback to payload template if fetch fails
-    let template = payload.template;
-    if (templateResponse.ok) {
-      template = await templateResponse.text();
-    }
+    // Use hardcoded template
+    const template = `## 📝 Summary
+## 🚀 Where should the reviewer start
+## 🔗 Related Issue
+## 📌 Notes`;
 
     // Generate the description using Claude
     const description = await generatePRDescription(diffText, template, settings.claudeApiKey);

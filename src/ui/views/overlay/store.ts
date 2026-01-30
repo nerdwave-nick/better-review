@@ -293,44 +293,22 @@ export const actions = {
           throw new Error(response.payload.error);
         }
       } else if (prMetadata) {
-        // On PR page - fetch diff from PR URL
-        const diffResponse = await sendToBackground({
-          type: 'FETCH_DIFF',
-          payload: prMetadata,
+        // On PR page - use PR number to fetch diff
+        const response = await sendToBackground({
+          type: 'GENERATE_PR_DESCRIPTION',
+          payload: {
+            owner: prMetadata.owner,
+            repo: prMetadata.repo,
+            prNumber: prMetadata.prNumber,
+            template,
+          },
         });
 
-        if (diffResponse.type === 'DIFF_ERROR') {
-          throw new Error(diffResponse.payload.error);
-        }
-
-        if (diffResponse.type === 'DIFF_RESULT') {
-          // Check settings explicitly here or rely on currentSettings?
-          // Let's rely on currentSettings but refresh if empty?
-          // Better to just ensure we have API key in background, background handles it.
-          // But here we need to know if we can proceed.
-
-          // Create a temporary compare spec for the generate endpoint
-          const response = await sendToBackground({
-            type: 'GENERATE_PR_DESCRIPTION',
-            payload: {
-              owner: prMetadata.owner,
-              repo: prMetadata.repo,
-              compareSpec: `pull/${prMetadata.prNumber}`, // This won't be used since we pass diff directly in background?
-              // Actually background `GENERATE_PR_DESCRIPTION` usually takes compareSpec.
-              // If we already have DIFF_RESULT, maybe we should have an endpoint that accepts diff?
-              // Looking at the original code, it calls GENERATE_PR_DESCRIPTION again.
-              // Let's stick to original logic.
-              template,
-            },
-          });
-
-          if (response.type === 'PR_DESCRIPTION_RESULT') {
-            textarea.value = response.payload.description;
-            textarea.dispatchEvent(new Event('input', { bubbles: true }));
-            // this.showToast('PR description generated!');
-          } else if (response.type === 'PR_DESCRIPTION_ERROR') {
-            throw new Error(response.payload.error);
-          }
+        if (response.type === 'PR_DESCRIPTION_RESULT') {
+          textarea.value = response.payload.description;
+          textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        } else if (response.type === 'PR_DESCRIPTION_ERROR') {
+          throw new Error(response.payload.error);
         }
       }
     } catch (error) {

@@ -2,7 +2,7 @@ import { extractPRMetadata } from './diff-parser';
 import { mountOverlay } from '../ui/views/overlay/mount';
 import { mountDescriptionButton, unmountDescriptionButton } from '../ui/views/mount-button';
 import { store, actions } from '../ui/views/overlay/store';
-import { extractCompareFromUrl, isOnFilesChangedView } from '../shared/utils';
+import { isOnFilesChangedView } from '../shared/utils';
 import { TIMEOUTS, LOG_TAGS } from '../shared/constants';
 import { logger } from '../shared/logger';
 
@@ -48,35 +48,17 @@ async function init(): Promise<void> {
  */
 function initPRDescriptionButton(): void {
   const tryAddButton = () => {
-    const compareMetadata = extractCompareFromUrl();
-    const prMetadata = extractPRMetadata();
+    // Find the PR description textarea
+    const textarea = document.querySelector(
+      'textarea[name="pull_request[body]"]'
+    ) as HTMLTextAreaElement | null;
 
-    if (compareMetadata || prMetadata) {
-      // Find target
-      const targetSelectors = [
-        '.js-pull-request-form .BtnGroup',
-        '.js-pull-request-form .form-actions',
-        '[data-testid="create-pr-footer"]',
-        '.js-previewable-comment-form .form-actions',
-        '.comment-form-actions',
-      ];
-
-      let targetContainer: Element | null = null;
-      for (const selector of targetSelectors) {
-        targetContainer = document.querySelector(selector);
-        if (targetContainer) break;
-      }
-
-      const textarea = document.querySelector(
-        'textarea[name="pull_request[body]"], textarea#pull_request_body, textarea[name="issue[body]"] , textarea#issue_body'
-      );
-
-      if (targetContainer) {
-        mountDescriptionButton(targetContainer, false);
-      } else if (textarea) {
-        mountDescriptionButton(document.body, true); // Floating
-      }
+    if (!textarea) {
+      return;
     }
+
+    // Always mount near the textarea
+    mountDescriptionButton(textarea, true);
   };
 
   tryAddButton();
