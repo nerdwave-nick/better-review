@@ -121,7 +121,6 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   enabledProviders: ['gemini'], // Default to Gemini only
   // Context settings - all enabled by default
   includeRepoSummary: true,
-  includeRelatedFiles: true,
   skipDiscussedIssues: true,
   darkMode: 'auto',
 };

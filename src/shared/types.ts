@@ -79,7 +79,6 @@ export interface ExtensionSettings {
   enabledProviders: ProviderName[]; // Which providers to use (default: ['gemini'])
   // Context settings
   includeRepoSummary: boolean; // Include README/package.json context
-  includeRelatedFiles: boolean; // Include imported/related files
   skipDiscussedIssues: boolean; // Skip issues already mentioned in comments
   darkMode: 'auto' | 'light' | 'dark';
 }

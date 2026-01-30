@@ -92,13 +92,12 @@ export async function orchestrateReview(
 
   // Fetch repo context if any context settings are enabled
   let repoContext: RepoContext | undefined;
-  if (settings.includeRepoSummary || settings.includeRelatedFiles || settings.skipDiscussedIssues) {
+  if (settings.includeRepoSummary || settings.skipDiscussedIssues) {
     try {
       logger.debug(TAG, 'Fetching repo context');
       repoContext = await fetchRepoContext(diff, settings);
       logger.debug(TAG, 'Repo context fetched', {
         hasRepoSummary: !!repoContext.repoSummary,
-        relatedFilesCount: repoContext.relatedFiles.length,
         existingCommentsCount: repoContext.existingComments.length,
         totalTokens: repoContext.tokenBudget.total,
       });
@@ -224,7 +223,7 @@ export async function runSingleProvider(
 
   // Fetch repo context if any context settings are enabled
   let repoContext: RepoContext | undefined;
-  if (settings.includeRepoSummary || settings.includeRelatedFiles || settings.skipDiscussedIssues) {
+  if (settings.includeRepoSummary || settings.skipDiscussedIssues) {
     try {
       repoContext = await fetchRepoContext(diff, settings);
     } catch (error) {

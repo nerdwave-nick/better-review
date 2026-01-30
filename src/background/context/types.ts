@@ -30,14 +30,6 @@ export interface TechStack {
   dependencies: string[]; // Key dependencies only
 }
 
-// Related file from the repository
-export interface RelatedFile {
-  path: string;
-  content: string;
-  relevance: 'import' | 'similar' | 'type_definition' | 'test';
-  truncated: boolean;
-}
-
 // Existing comment on the PR
 export interface ExistingComment {
   id: number;
@@ -56,16 +48,12 @@ export interface RepoContext {
   // Repo-level context
   repoSummary?: RepoSummary;
 
-  // Files related to the changes
-  relatedFiles: RelatedFile[];
-
   // Existing comments to avoid duplication
   existingComments: ExistingComment[];
 
   // Token budget tracking
   tokenBudget: {
     repoSummary: number;
-    relatedFiles: number;
     existingComments: number;
     total: number;
   };
@@ -74,18 +62,14 @@ export interface RepoContext {
 // Settings for context fetching
 export interface ContextSettings {
   includeRepoSummary: boolean;
-  includeRelatedFiles: boolean;
   skipDiscussedIssues: boolean;
-  maxRelatedFiles: number;
   maxTokensForContext: number;
 }
 
 // Default context settings
 export const DEFAULT_CONTEXT_SETTINGS: ContextSettings = {
   includeRepoSummary: true,
-  includeRelatedFiles: true,
   skipDiscussedIssues: true,
-  maxRelatedFiles: 10,
   maxTokensForContext: 20000,
 };
 

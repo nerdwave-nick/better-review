@@ -88,10 +88,6 @@
               <span class="checkbox__label">Include repo summary (README)</span>
             </label>
             <label class="checkbox">
-              <input type="checkbox" v-model="settings.includeRelatedFiles">
-              <span class="checkbox__label">Include related files (imports)</span>
-            </label>
-            <label class="checkbox">
               <input type="checkbox" v-model="settings.skipDiscussedIssues">
               <span class="checkbox__label">Skip discussed issues</span>
             </label>
